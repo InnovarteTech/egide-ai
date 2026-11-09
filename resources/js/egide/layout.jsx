@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Head, Link, usePage } from '@inertiajs/react';
+import { useEffect, useState } from 'react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import { Check, ChevronDown, CirclePlay, Crosshair, Layers3, LayoutGrid, LogOut, Menu, Radio, Settings2, Shield, ShieldAlert } from 'lucide-react';
 import { Logo } from './ui';
 
@@ -10,10 +10,18 @@ const navigation = [
     ['Achados', '/achados', Crosshair],
     ['Sentinela', '/sentinela', Radio],
 ];
+const preload = { prefetch: 'hover', cacheFor: '10s' };
 function Sidebar({ open, close }) {
     const { url, props } = usePage();
     const name = props.workspace?.name ?? 'Meu workspace';
     const initials = name.split(/\s+/).slice(0, 2).map(word => word[0]).join('').toUpperCase();
+    useEffect(() => {
+        if (!open) return;
+        const current = url.split('?')[0];
+        [...navigation.map(([, href]) => href), props.auth?.is_admin ? '/admin' : null, '/configuracoes']
+            .filter(href => href && href !== current)
+            .forEach(href => router.prefetch(href, {}, { cacheFor: '10s' }));
+    }, [open]);
     return <>
         {open && <button type="button" className="mobile-scrim" onClick={close} aria-label="Fechar menu" />}
         <aside className={'sidebar ' + (open ? 'sidebar-open' : '')} aria-label="Navegação principal">
@@ -26,14 +34,14 @@ function Sidebar({ open, close }) {
                 <div className="micro nav-section">OPERAÇÃO</div>
                 {navigation.map(([label, href, Icon]) => {
                     const active = href === '/' ? url === '/' : url.startsWith(href);
-                    return <Link key={href} href={href} onClick={close} className={'nav-link ' + (active ? 'nav-active' : '')} aria-current={active ? 'page' : undefined}>
+                    return <Link key={href} href={href} {...preload} onClick={close} className={'nav-link ' + (active ? 'nav-active' : '')} aria-current={active ? 'page' : undefined}>
                         <Icon size={19} /><span>{label}</span>{active && <i />}
                     </Link>;
                 })}
             </nav>
             <div className="sidebar-bottom">
-                {props.auth?.is_admin && <Link className={'nav-link ' + (url.startsWith('/admin') ? 'nav-active' : '')} href="/admin" onClick={close}><ShieldAlert size={19} />Super admin</Link>}
-                <Link className={'nav-link ' + (url.startsWith('/configuracoes') ? 'nav-active' : '')} href="/configuracoes" onClick={close}><Settings2 size={19} />Configurações</Link>
+                {props.auth?.is_admin && <Link className={'nav-link ' + (url.startsWith('/admin') ? 'nav-active' : '')} href="/admin" {...preload} onClick={close}><ShieldAlert size={19} />Super admin</Link>}
+                <Link className={'nav-link ' + (url.startsWith('/configuracoes') ? 'nav-active' : '')} href="/configuracoes" {...preload} onClick={close}><Settings2 size={19} />Configurações</Link>
                 <div className="account">
                     <span className="avatar">{initials}</span>
                     <div className="account-meta"><strong>{props.auth?.name}</strong><small>{props.auth?.email}</small></div>

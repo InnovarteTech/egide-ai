@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client';
-import { createInertiaApp } from '@inertiajs/react';
+import { createInertiaApp, router } from '@inertiajs/react';
 import '@fontsource-variable/manrope';
 import '@fontsource-variable/inter';
 import '../css/egide.css';
@@ -21,3 +21,4 @@ createInertiaApp({
     setup({ el, App, props }) { createRoot(el).render(<App {...props} />); },
     progress: { color: '#6435ea' },
 });
+router.on('finish', event => { if (event.detail.visit.method !== 'get') router.flushAll(); });

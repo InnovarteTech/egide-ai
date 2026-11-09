@@ -33,6 +33,7 @@ RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-av
         "Header always set Content-Security-Policy \"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'\"" \
         'SetEnvIf X-Forwarded-Proto "^https$" EGIDE_HTTPS' \
         'Header always set Strict-Transport-Security "max-age=31536000" env=EGIDE_HTTPS' \
+        '<Directory ${APACHE_DOCUMENT_ROOT}/build/assets>' 'Header set Cache-Control "public, max-age=31536000, immutable"' '</Directory>' \
         > /etc/apache2/conf-enabled/zz-egide-security.conf \
     && printf 'expose_php=Off\nmemory_limit=256M\nopcache.enable=1\nopcache.validate_timestamps=0\n' > /usr/local/etc/php/conf.d/egide.ini
 WORKDIR /var/www/html
