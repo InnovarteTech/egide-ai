@@ -577,3 +577,4 @@ code.request{font-size:.78rem;overflow-wrap:anywhere;color:#2d2340}
     .kill-actions{width:100%}
     .kill-actions .button{flex:1}
 }
+@media(pointer:coarse),(max-width:700px){input:not([type=checkbox],[type=radio],[type=range],[type=color]),textarea,select{font-size:16px}}

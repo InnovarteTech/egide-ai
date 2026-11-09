@@ -16,6 +16,7 @@ RUN composer dump-autoload --optimize --no-dev --classmap-authoritative
 
 FROM php:8.3-apache-bookworm
 RUN apt-get update \
+    && apt-get upgrade -y \
     && apt-get install -y --no-install-recommends libpq-dev libzip-dev unzip \
     && docker-php-ext-install pdo_pgsql pcntl zip opcache \
     && pecl install redis-6.1.0 && docker-php-ext-enable redis \
