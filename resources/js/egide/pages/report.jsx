@@ -5,6 +5,9 @@ import { Logo, Badge } from '../ui';
 import { RuleColumns } from '../evidence';
 
 const sensitiveFiles = ['.env', '.git/HEAD', '.git/config', 'backup.sql', 'dump.sql', 'phpinfo.php', 'server-status', 'actuator/env', '.DS_Store'];
+const coverageTones = { falha: 'red', protegido: 'green', nao_testado: 'neutral' };
+const coverageLabels = { falha: 'Falha', protegido: 'Protegido', nao_testado: 'Não testado' };
+const cvssScores = { critical: '9.8', high: '7.5', medium: '5.3', low: '3.1' };
 export function Report({ scan, events, findings, target, engine, generatedAt }) {
     const outcome = outcomes[scan.result];
     const status = statuses[scan.status] ?? [scan.status, 'neutral'];
@@ -16,6 +19,8 @@ export function Report({ scan, events, findings, target, engine, generatedAt }) 
     const absent = [...new Map(network.filter(event => (event.data?.status ?? 0) >= 400 || probe(event)).map(event => [event.title, event.data?.status])).entries()];
     const activity = events.filter(event => !['network', 'blocked'].includes(event.type));
     const host = hostOf(scan.scope.url);
+    const coverage = scan.coverage ?? [];
+    const coverageByCheck = coverage.reduce((groups, row) => ({ ...groups, [row.check]: [...(groups[row.check] ?? []), row] }), {});
     const tone = outcome?.[1] ?? 'neutral';
     const VerdictIcon = tone === 'red' ? TriangleAlert : tone === 'green' ? ShieldCheck : Info;
     return <div className="report">
@@ -68,7 +73,7 @@ export function Report({ scan, events, findings, target, engine, generatedAt }) 
                     const [severity, findingTone] = severities[finding.severity] ?? [finding.severity, 'neutral'];
                     const evidence = finding.evidence;
                     return <div className="report-finding" key={finding.id}>
-                        <div className="finding-head"><h3>{finding.title}</h3><Badge tone={findingTone}>{severity}</Badge></div>
+                        <div className="finding-head"><h3>{finding.title}</h3><Badge tone={findingTone}>{severity}{cvssScores[finding.severity] ? ' · CVSS ' + cvssScores[finding.severity] : ''}</Badge></div>
                         <p className="muted">{finding.category}</p>
                         <table className="report-table"><tbody>
                             <tr><th>Requisição</th><td><code>{evidence.method} {evidence.path}</code></td></tr>
@@ -89,6 +94,20 @@ export function Report({ scan, events, findings, target, engine, generatedAt }) 
                     </div>;
                 }) : <p>Nenhuma vulnerabilidade confirmada nesta sessão.</p>}
             </section>
+
+            {coverage.length > 0 && <section className="report-section">
+                <h2>Mapa de cobertura</h2>
+                <p>O que a Égide testou nesta sessão, por classe de verificação e rota. "Não testado" é distinto de "protegido": não testado significa que a rota não pôde ser provada, não que é segura.</p>
+                <table className="report-table"><thead><tr><th>Verificação</th><th>Falhas</th><th>Protegidas</th><th>Não testadas</th></tr></thead><tbody>
+                    {Object.entries(coverageByCheck).map(([check, rows]) => <tr key={check}>
+                        <td>{check}</td>
+                        <td>{rows.filter(row => row.verdict === 'falha').length}</td>
+                        <td>{rows.filter(row => row.verdict === 'protegido').length}</td>
+                        <td>{rows.filter(row => row.verdict === 'nao_testado').length}</td>
+                    </tr>)}
+                </tbody></table>
+                <ul className="endpoint-list">{coverage.map((row, index) => <li key={index}><code>{row.route}</code> · {row.check} · <Badge tone={coverageTones[row.verdict] ?? 'neutral'}>{coverageLabels[row.verdict] ?? row.verdict}</Badge></li>)}</ul>
+            </section>}
 
             {endpoints.length > 0 && <section className="report-section">
                 <h2>Superfície observada</h2>

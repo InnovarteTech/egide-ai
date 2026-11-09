@@ -4,6 +4,7 @@ return [
     'runner_url' => env('EGIDE_RUNNER_URL', 'http://127.0.0.1:8791'),
     'runner_urls' => array_values(array_filter(array_map('trim', explode(',', (string) env('EGIDE_RUNNER_URLS', env('EGIDE_RUNNER_URL', 'http://127.0.0.1:8791')))))),
     'runner_token' => env('EGIDE_RUNNER_TOKEN'),
+    'callback_url' => env('EGIDE_CALLBACK_URL'),
     'demo_access' => env('EGIDE_DEMO_ACCESS', false),
     'demo_daily_per_user' => (int) env('EGIDE_DEMO_DAILY_PER_USER', 5),
     'demo_daily_total' => (int) env('EGIDE_DEMO_DAILY_TOTAL', 120),

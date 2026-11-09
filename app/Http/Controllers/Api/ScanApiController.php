@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Scan;
 use App\Models\Target;
+use App\Security\Checks;
 use App\Security\Launcher;
 use Illuminate\Http\Request;
 use RuntimeException;
@@ -46,14 +47,32 @@ class ScanApiController extends Controller
     private function present(Scan $scan): array
     {
         $counts = $scan->findings()->get()->countBy('severity');
+        $critical = $counts['critical'] ?? 0;
+        $high = $counts['high'] ?? 0;
+        $running = in_array($scan->status, ['queued', 'running'], true);
+        $completed = $scan->status === 'completed';
+        $worst = collect(['critical', 'high', 'medium', 'low'])->first(fn ($level) => ($counts[$level] ?? 0) > 0);
+        $motivo = match (true) {
+            $running => 'em_andamento',
+            ! $completed => $scan->status,
+            $critical + $high > 0 => 'achados_bloqueantes',
+            default => null,
+        };
 
         return [
             'id' => $scan->id, 'ativo' => $scan->target_id, 'status' => $scan->status, 'fase' => $scan->phase,
             'resultado' => $scan->result, 'regressao' => $scan->regression, 'erro' => $scan->error,
             'risco' => $scan->summary['risk'] ?? null,
             'achados' => [
-                'critical' => $counts['critical'] ?? 0, 'high' => $counts['high'] ?? 0,
+                'critical' => $critical, 'high' => $high,
                 'medium' => $counts['medium'] ?? 0, 'low' => $counts['low'] ?? 0,
+            ],
+            'cvss_estimado' => $worst ? Checks::cvss($worst)['score'] : 0.0,
+            'portao' => [
+                'passou' => $completed && $critical === 0 && $high === 0,
+                'pendente' => $running,
+                'motivo' => $motivo,
+                'bloqueia_em' => ['critical', 'high'],
             ],
             'relatorio' => url('/sessoes/'.$scan->id.'/relatorio/imprimir'),
             'criada_em' => $scan->created_at?->toIso8601String(), 'concluida_em' => $scan->finished_at?->toIso8601String(),

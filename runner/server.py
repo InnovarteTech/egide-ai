@@ -328,8 +328,35 @@ def write_target(path):
     return rule["base"] + path
 
 
+def resolve_target(path):
+    url = None
+    if path.startswith("https://"):
+        target = urllib.parse.urlsplit(path)
+        if (not SESSION.get("api") or target.hostname != SESSION["api"] or target.port not in (443, None)
+                or target.query or target.fragment or target.username or target.password):
+            raise ValueError("Rota fora do domínio da API")
+        path = target.path
+        url = f"https://{SESSION['api']}{path}"
+    if (not re.fullmatch(r"/(?:[a-zA-Z0-9._@-]+/)*[a-zA-Z0-9._@-]*", path)
+            or any(part in (".", "..") for part in path.split("/")) or len(path) > 450):
+        raise ValueError("Rota inválida")
+    return url, path
+
+
+def build_query(query):
+    if not isinstance(query, dict) or not query:
+        return ""
+    pairs = []
+    for key, value in list(query.items())[:12]:
+        if not isinstance(key, str) or not re.fullmatch(r"[A-Za-z0-9_.\-]{1,40}", key):
+            raise ValueError("Parâmetro de consulta inválido")
+        pairs.append((key, str(value)[:300]))
+    return "?" + urllib.parse.urlencode(pairs)
+
+
 def fields(data):
-    return bridge_call({"kind": "fields", "url": write_target(data["path"]), "origin": actor_origin()})
+    url, path = resolve_target(data["path"])
+    return bridge_call({"kind": "fields", "url": url or (actor_origin() + path), "origin": actor_origin()})
 
 
 def write(data):
@@ -347,21 +374,11 @@ def write(data):
 
 
 def probe(data):
-    path = data["path"]
-    url = None
-    if path.startswith("https://"):
-        target = urllib.parse.urlsplit(path)
-        if (not SESSION.get("api") or target.hostname != SESSION["api"] or target.port not in (443, None)
-                or target.query or target.fragment or target.username or target.password):
-            raise ValueError("Rota fora do domínio da API")
-        path = target.path
-        url = f"https://{SESSION['api']}{path}"
-    if (not re.fullmatch(r"/(?:[a-zA-Z0-9._@-]+/)*[a-zA-Z0-9._@-]*", path)
-            or any(part in (".", "..") for part in path.split("/")) or len(path) > 450):
-        raise ValueError("Rota inválida")
-    command = {"kind": "probe", "path": path, "origin": actor_origin(), "markers": data.get("markers", [])}
+    url, path = resolve_target(data["path"])
+    qs = build_query(data.get("query"))
+    command = {"kind": "probe", "path": path + qs, "origin": actor_origin(), "markers": data.get("markers", []), "anon": bool(data.get("anon"))}
     if url:
-        command["url"] = url
+        command["url"] = url + qs
     return bridge_call(command)
 
 

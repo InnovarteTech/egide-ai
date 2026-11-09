@@ -78,7 +78,7 @@ class ApiOriginTest extends TestCase
             ->assertSessionHasErrors('path_a');
         $this->assertDatabaseCount('targets', 0);
 
-        $this->post('/ambientes', $this->environment(['write_test' => '1']))->assertSessionHasNoErrors();
+        $this->post('/ambientes', $this->environment(['write_test' => '1', 'environment_type' => 'test']))->assertSessionHasNoErrors();
         $target = Target::sole();
         $this->assertTrue($target->write_test);
 

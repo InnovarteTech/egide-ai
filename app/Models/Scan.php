@@ -20,6 +20,7 @@ class Scan extends Model
         return [
             'scope' => 'array',
             'summary' => 'array',
+            'coverage' => 'array',
             'regression' => 'boolean',
             'engine_key' => 'encrypted',
             'credentials' => 'encrypted:array',

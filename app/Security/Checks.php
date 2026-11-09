@@ -6,6 +6,18 @@ final class Checks
 {
     public const SEVERITY = ['critical' => 0, 'high' => 1, 'medium' => 2, 'low' => 3];
 
+    public const CVSS = [
+        'critical' => ['score' => 9.8, 'rating' => 'Crítico'],
+        'high' => ['score' => 7.5, 'rating' => 'Alto'],
+        'medium' => ['score' => 5.3, 'rating' => 'Médio'],
+        'low' => ['score' => 3.1, 'rating' => 'Baixo'],
+    ];
+
+    public static function cvss(string $severity): array
+    {
+        return self::CVSS[$severity] ?? ['score' => 0.0, 'rating' => 'Informativo'];
+    }
+
     public const FILES = [
         '.env' => [
             'signatures' => ['APP_KEY=', 'DB_PASSWORD=', 'SECRET_KEY=', 'AWS_SECRET_ACCESS_KEY=', 'DATABASE_URL='],

@@ -6,20 +6,20 @@ import { Badge, useTab, Tabs, TabPanel, Dialog, ConfirmAction, CopyBox, Empty, F
 import { Layout, Heading } from '../layout';
 
 const assetSections = {
-    ambiente: ['name', 'origin', 'api_origin', 'entry_path', 'local_port'],
+    ambiente: ['name', 'origin', 'api_origin', 'entry_path', 'local_port', 'environment_type'],
     escopo: ['rules', 'denied'],
-    contas: ['record_hint', 'email_a', 'password_a', 'marker_a', 'origin_a', 'path_a', 'email_b', 'password_b', 'marker_b', 'origin_b', 'path_b'],
+    contas: ['record_hint', 'email_a', 'password_a', 'marker_a', 'origin_a', 'path_a', 'role_a', 'email_b', 'password_b', 'marker_b', 'origin_b', 'path_b', 'role_b'],
 };
 const steps = ['ambiente', 'escopo', 'contas'];
 const newMarker = () => 'EGIDE-' + Array.from(crypto.getRandomValues(new Uint8Array(8)), byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
 const blank = target => {
-    if (!target) return { name: '', origin: '', api_origin: '', entry_path: '/', rules: 'GET /', denied: '', email_a: '', password_a: '', email_b: '', password_b: '', marker_a: newMarker(), marker_b: newMarker(), origin_a: '', origin_b: '', path_a: '', path_b: '', record_hint: '', local_port: '', write_test: false };
+    if (!target) return { name: '', origin: '', api_origin: '', entry_path: '/', rules: 'GET /', denied: '', email_a: '', password_a: '', email_b: '', password_b: '', marker_a: newMarker(), marker_b: newMarker(), origin_a: '', origin_b: '', path_a: '', path_b: '', role_a: 'normal', role_b: 'normal', environment_type: 'production', record_hint: '', local_port: '', write_test: false };
     const e = target.edit;
     return {
         name: e.name, origin: e.origin, api_origin: e.api_origin, entry_path: e.entry_path, rules: e.rules, denied: e.denied,
-        record_hint: e.record_hint, write_test: e.write_test, local_port: target.local_port ? String(target.local_port) : '',
-        email_a: e.accounts.a.email, password_a: '', marker_a: e.accounts.a.marker || newMarker(), origin_a: e.accounts.a.origin, path_a: e.accounts.a.path,
-        email_b: e.accounts.b.email, password_b: '', marker_b: e.accounts.b.marker || newMarker(), origin_b: e.accounts.b.origin, path_b: e.accounts.b.path,
+        record_hint: e.record_hint, write_test: e.write_test, environment_type: e.environment_type || 'production', local_port: target.local_port ? String(target.local_port) : '',
+        email_a: e.accounts.a.email, password_a: '', marker_a: e.accounts.a.marker || newMarker(), origin_a: e.accounts.a.origin, path_a: e.accounts.a.path, role_a: e.accounts.a.role || 'normal',
+        email_b: e.accounts.b.email, password_b: '', marker_b: e.accounts.b.marker || newMarker(), origin_b: e.accounts.b.origin, path_b: e.accounts.b.path, role_b: e.accounts.b.role || 'normal',
     };
 };
 function AssetDialog({ open, onClose, localTargets, target }) {
@@ -31,7 +31,7 @@ function AssetDialog({ open, onClose, localTargets, target }) {
     const form = useForm(blank(target));
     const step = steps.indexOf(section);
     const failing = key => assetSections[key].some(field => form.errors[field]);
-    const actorFailing = value => ['email_', 'password_', 'marker_', 'origin_', 'path_'].some(field => form.errors[field + value]);
+    const actorFailing = value => ['email_', 'password_', 'marker_', 'origin_', 'path_', 'role_'].some(field => form.errors[field + value]);
     const submit = event => {
         event.preventDefault();
         if (step < steps.length - 1) { setSection(steps[step + 1]); return; }
@@ -86,6 +86,15 @@ function AssetDialog({ open, onClose, localTargets, target }) {
                     </div>
                 </div>
                 {split && <Field label="Domínio da API" error={form.errors.api_origin} help="O proxy libera este domínio também. Ele precisa publicar o mesmo código de verificação.">{input('api_origin', { type: 'url', placeholder: 'https://api.empresa.com.br', inputMode: 'url' })}</Field>}
+                <div className="field">
+                    <span className="field-title" id="env-type">Tipo de ambiente</span>
+                    <div className="segmented" role="group" aria-labelledby="env-type">
+                        {[['test', 'Teste / homologação'], ['production', 'Produção']].map(([value, label]) => <button key={value} type="button" aria-pressed={form.data.environment_type === value} onClick={() => form.setData('environment_type', value)}>{label}</button>)}
+                    </div>
+                    <small>{form.data.environment_type === 'production'
+                        ? 'Em produção a Égide só faz leitura: nada de escrita, injeção ou enumeração ativa.'
+                        : 'Em teste a Égide roda a bateria completa (autorização, escrita reversível, injeção).'}</small>
+                </div>
             </TabPanel>}
             {section === 'escopo' && <TabPanel name="ativo" id="escopo" className="form-stack">
                 <div className="fields-two">
@@ -107,6 +116,11 @@ function AssetDialog({ open, onClose, localTargets, target }) {
                         <Field label="Login" error={form.errors['email_' + actor]}>{input('email_' + actor)}</Field>
                         <Field label="Senha" error={form.errors['password_' + actor]}><input type="password" autoComplete="new-password" placeholder={editing ? 'manter atual' : ''} value={form.data['password_' + actor]} onChange={e => form.setData('password_' + actor, e.target.value)} /></Field>
                     </div>
+                    <Field label="Papel desta conta" error={form.errors['role_' + actor]} help="Admin alcança rotas privilegiadas; Comum é usuário sem privilégio. A Égide usa os dois para provar falha de autorização por função.">
+                        <div className="segmented" role="group" aria-label={'Papel da conta ' + actor.toUpperCase()}>
+                            {[['normal', 'Comum'], ['admin', 'Admin']].map(([value, label]) => <button key={value} type="button" aria-pressed={form.data['role_' + actor] === value} onClick={() => form.setData('role_' + actor, value)}>{label}</button>)}
+                        </div>
+                    </Field>
                     <div className="marker-row">
                         <Field label="Marcador do registro" error={form.errors[markerField]} help="Use este texto como nome de um registro só desta conta.">{input(markerField, { className: 'mono-input', placeholder: 'EGIDE-0123456789ABCDEF' })}</Field>
                         <div className="marker-actions">

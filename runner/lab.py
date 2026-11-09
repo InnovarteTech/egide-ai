@@ -1,10 +1,29 @@
 import csv
 import html
 import io
+import ipaddress
 import json
 import re
 import secrets
 import smtplib
+import socket
+import time
+import urllib.request
+from urllib.parse import urlsplit as _urlsplit
+
+
+def _public_host(url):
+    host = _urlsplit(url).hostname
+    if not host:
+        return False
+    try:
+        for info in socket.getaddrinfo(host, None):
+            ip = ipaddress.ip_address(info[4][0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
+                return False
+    except Exception:
+        return False
+    return True
 from email.message import EmailMessage
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
@@ -15,6 +34,7 @@ accounts = {}
 sessions = {}
 confirmations = {}
 invoices = {}
+privileged = {}
 
 
 def reset():
@@ -22,8 +42,10 @@ def reset():
     sessions.clear()
     confirmations.clear()
     invoices.clear()
+    privileged.clear()
+    privileged.update({"marcador": "EGIDE-" + secrets.token_hex(6).upper(), "relatorio": "Receita consolidada de todas as empresas do tenant"})
     for actor in ("a", "b"):
-        invoices[actor] = {"id": secrets.token_hex(4), "marcador": "EGIDE-" + secrets.token_hex(6).upper(), "nota": "Sem observacoes"}
+        invoices[actor] = {"id": secrets.token_hex(4), "marcador": "EGIDE-" + secrets.token_hex(6).upper(), "nota": "Sem observacoes", "email_contato": f"contato-{actor}@empresa.test"}
 
 
 def page(content):
@@ -101,13 +123,69 @@ class Lab(BaseHTTPRequestHandler):
                 return
             record = invoices[owner]
             if "application/json" in self.headers.get("Accept", ""):
-                self.reply(json.dumps({"fatura": invoice, "empresa": owner.upper(), "marcador": record["marcador"], "nota": record["nota"]}), kind="application/json")
+                payload = {"fatura": invoice, "empresa": owner.upper(), "marcador": record["marcador"], "nota": record["nota"]}
+                if variant == "vulneravel":
+                    payload.update({k: v for k, v in record.items() if k != "id"})
+                self.reply(json.dumps(payload), kind="application/json")
                 return
             result = io.StringIO()
             writer = csv.writer(result)
             writer.writerow(("fatura", "empresa", "marcador", "nota"))
             writer.writerow((invoice, owner.upper(), record["marcador"], record["nota"]))
             self.reply(result.getvalue(), kind="text/csv; charset=utf-8")
+            return
+        report = re.fullmatch(r"/(vulneravel|corrigido)/admin/relatorio/?", path)
+        if report:
+            variant = report.group(1)
+            actor = self.actor()
+            if not actor:
+                self.redirect(f"/{variant}/entrar")
+                return
+            if variant == "corrigido" and actor != "a":
+                self.reply(json.dumps({"error": "Acesso restrito a administradores"}), 403, "application/json")
+                return
+            self.reply(json.dumps({"relatorio": privileged["relatorio"], "marcador": privileged["marcador"], "empresas": [item["id"] for item in invoices.values()]}), kind="application/json")
+            return
+        public = re.fullmatch(r"/servicos/(vulneravel|corrigido)/publico/([a-f0-9]{8})", path)
+        if public:
+            variant, invoice = public.groups()
+            owner = next((actor for actor, item in invoices.items() if item["id"] == invoice), None)
+            if not owner:
+                self.reply(json.dumps({"error": "Nao encontrado"}), 404, "application/json")
+                return
+            if variant == "corrigido" and not self.actor():
+                self.reply(json.dumps({"error": "Autenticacao necessaria"}), 401, "application/json")
+                return
+            record = invoices[owner]
+            self.reply(json.dumps({"fatura": invoice, "empresa": owner.upper(), "marcador": record["marcador"], "nota": record["nota"]}), kind="application/json")
+            return
+        busca = re.fullmatch(r"/servicos/(vulneravel|corrigido)/busca", path)
+        if busca:
+            variant = busca.group(1)
+            term = parse_qs(urlsplit(self.path).query).get("q", [""])[0]
+            shown = term if variant == "vulneravel" else html.escape(term)
+            self.reply(page(f"<small>BUSCA</small><h1>Resultados</h1><p>Resultados para {shown}</p>"))
+            return
+        consulta = re.fullmatch(r"/servicos/(vulneravel|corrigido)/consulta", path)
+        if consulta:
+            variant = consulta.group(1)
+            value = parse_qs(urlsplit(self.path).query).get("id", [""])[0]
+            if variant == "vulneravel" and re.search(r"sleep|benchmark|waitfor|pg_sleep|'", value, re.I):
+                time.sleep(6)
+            self.reply(json.dumps({"consulta": value[:40], "itens": []}), kind="application/json")
+            return
+        integrador = re.fullmatch(r"/servicos/(vulneravel|corrigido)/integrador", path)
+        if integrador:
+            variant = integrador.group(1)
+            destino = parse_qs(urlsplit(self.path).query).get("url", [""])[0]
+            if variant == "vulneravel" and destino.startswith(("http://", "https://")) and _public_host(destino):
+                try:
+                    urllib.request.urlopen(destino, timeout=4).read(64)
+                except Exception:
+                    pass
+                self.reply(json.dumps({"ok": True, "destino": destino[:120]}), kind="application/json")
+            else:
+                self.reply(json.dumps({"error": "destino nao permitido"}), 400, "application/json")
             return
         match = re.fullmatch(r"/(vulneravel|corrigido)(?:/(entrar|cadastro|painel|faturas|ajuda))?/?", path)
         if not match:
@@ -179,7 +257,11 @@ document.getElementById("exportar").onclick = async () => {{
         except ValueError:
             self.reply(json.dumps({"error": "JSON invalido"}), 400, "application/json")
             return
-        if "nota" in body and isinstance(body["nota"], str):
+        if variant == "vulneravel":
+            for key, value in body.items():
+                if isinstance(value, str) and key != "id":
+                    invoices[owner][key] = value[:200]
+        elif "nota" in body and isinstance(body["nota"], str):
             invoices[owner]["nota"] = body["nota"][:200]
         self.reply(json.dumps({"fatura": invoice, "empresa": owner.upper(), "nota": invoices[owner]["nota"]}), kind="application/json")
 

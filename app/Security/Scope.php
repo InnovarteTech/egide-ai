@@ -161,17 +161,27 @@ final class Scope
 
         $write = null;
         $writePath = $accounts['a']['path'] ?? null;
-        if ($target->write_test && is_string($writePath)) {
+        if ($target->write_test && is_string($writePath) && $target->environment_type !== 'production') {
             $parts = str_starts_with($writePath, 'https://')
                 ? ['host' => parse_url($writePath, PHP_URL_HOST), 'path' => parse_url($writePath, PHP_URL_PATH)]
                 : ['host' => parse_url($accounts['a']['origin'] ?? $target->origin, PHP_URL_HOST), 'path' => $writePath];
             $write = ['method' => 'PATCH', 'host' => $parts['host'], 'path' => $parts['path'], 'max' => 4];
         }
 
+        $launchAccounts = [];
+        foreach ($accounts as $actor => $account) {
+            $launchAccounts[$actor] = [
+                'role' => in_array($account['role'] ?? 'normal', ['admin', 'normal'], true) ? ($account['role'] ?? 'normal') : 'normal',
+                'marker' => $account['marker'] ?? null, 'path' => $account['path'] ?? null,
+                'origin' => $account['origin'] ?? null,
+            ];
+        }
+
         return [
             'url' => ($urls['a'] ?? $target->origin.$target->entry_path), 'lab' => false, 'api' => $target->api_origin ?: null,
             'urls' => $urls, 'rules' => $target->rules, 'denied' => $target->denied,
-            'local_port' => $target->local_port ?: null, 'write' => $write,
+            'local_port' => $target->local_port ?: null, 'write' => $write, 'accounts' => $launchAccounts,
+            'env_type' => $target->environment_type === 'test' ? 'test' : 'production',
         ];
     }
 

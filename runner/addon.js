@@ -13,7 +13,7 @@ const snapshot = `(() => {
       href:element.tagName === 'A' ? element.pathname : undefined}];
   }).slice(0,65);
   return {title:document.title.slice(0,100), path:location.pathname, origin:location.origin,
-    controls, viewport:{width:innerWidth,height:innerHeight}, captcha:!!document.querySelector(
+    controls, text:(document.body?.innerText||'').slice(0,8000), viewport:{width:innerWidth,height:innerHeight}, captcha:!!document.querySelector(
       'iframe[src*="recaptcha"], iframe[src*="challenges.cloudflare"], iframe[src*="hcaptcha"]')};
 })()`;
 
@@ -30,7 +30,7 @@ async function readProbe(response, markers) {
   const matches = markers.filter(marker => text.includes(marker));
   return {status: response.status, matches, type: (response.headers.get('content-type') || '').slice(0, 80),
     marker: matches[0] || (!markers.length && (text.match(/(?:EGIDE|ESCOPO)-[A-F0-9]{12}/) || [])[0]) || null,
-    blocked: response.headers.get('x-egide-blocked') === '1'};
+    sample: text.slice(0, 2000), blocked: response.headers.get('x-egide-blocked') === '1'};
 }
 
 async function collect(command) {
@@ -63,14 +63,22 @@ async function collect(command) {
   }
   if (command?.kind === 'probe' && command.url) {
     if (new URL(tab.url).origin !== command.origin) return {result:{status:0, matches:[]}};
-    const response = await fetch(command.url, {credentials:'include', cache:'no-store', redirect:'manual', headers:{'X-Egide-Probe':'1'}, signal:AbortSignal.timeout(5500)});
-    return {result: await readProbe(response, command.markers || [])};
+    const anon = command.anon === true;
+    const t0 = Date.now();
+    const response = await fetch(command.url, {credentials: anon ? 'omit' : 'include', cache:'no-store', redirect:'manual', headers: anon ? {'X-Egide-Probe':'1', 'X-Egide-Anon':'1'} : {'X-Egide-Probe':'1'}, signal:AbortSignal.timeout(8500)});
+    const result = await readProbe(response, command.markers || []);
+    result.elapsed = Date.now() - t0;
+    return {result};
   }
   if (command?.kind === 'probe') {
+    const anon = command.anon === true;
     const code = `(async () => {
       if (location.origin !== ${JSON.stringify(command.origin)}) return {status:0, matches:[]};
-      const response = await content.fetch(new URL(${JSON.stringify(command.path)}, location.origin).href, {credentials:'same-origin', cache:'no-store', redirect:'manual', headers:{'X-Egide-Probe':'1'}, signal:AbortSignal.timeout(5500)});
-      return (${readProbe.toString()})(response, ${JSON.stringify(command.markers || [])});
+      const t0 = Date.now();
+      const response = await content.fetch(new URL(${JSON.stringify(command.path)}, location.origin).href, {credentials:${anon ? "'omit'" : "'same-origin'"}, cache:'no-store', redirect:'manual', headers:${anon ? "{'X-Egide-Probe':'1', 'X-Egide-Anon':'1'}" : "{'X-Egide-Probe':'1'}"}, signal:AbortSignal.timeout(8500)});
+      const out = await (${readProbe.toString()})(response, ${JSON.stringify(command.markers || [])});
+      out.elapsed = Date.now() - t0;
+      return out;
     })()`;
     const [value] = await browser.tabs.executeScript(tab.id, {code, runAt:'document_start'});
     return {result: value};

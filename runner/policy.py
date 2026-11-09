@@ -186,8 +186,12 @@ def check(flow):
             limit += 1
     req.headers['connection'] = 'close'
     actor = current_actor()
+    anon = req.headers.pop("x-egide-anon", None) == "1"
     probe = req.headers.pop("x-egide-probe", None) == "1"
-    if not preflight and actor and probe and "authorization" not in req.headers:
+    if anon:
+        req.headers.pop("authorization", None)
+        req.headers.pop("cookie", None)
+    elif not preflight and actor and probe and "authorization" not in req.headers:
         stored = sessions.get((actor, req.host.lower()))
         if stored:
             req.headers["authorization"] = stored

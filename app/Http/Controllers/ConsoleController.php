@@ -115,6 +115,8 @@ class ConsoleController extends Controller
             'local_port' => 'nullable|integer|min:1|max:65535',
             'record_hint' => 'nullable|string|max:120',
             'path_a' => 'nullable|string|max:250', 'path_b' => 'nullable|string|max:250',
+            'role_a' => 'nullable|in:admin,normal', 'role_b' => 'nullable|in:admin,normal',
+            'environment_type' => 'nullable|in:test,production',
             'write_test' => 'sometimes|boolean',
         ]);
         $existingCredentials = (array) ($existing?->credentials ?? []);
@@ -192,6 +194,7 @@ class ConsoleController extends Controller
                 $credentials[$actor] = [
                     'email' => $data['email_'.$actor], 'password' => $password,
                     'marker' => $data['marker_'.$actor] ?? null, 'origin' => $accountOrigin, 'path' => $recordPath,
+                    'role' => $data['role_'.$actor] ?? 'normal',
                 ];
             }
         }
@@ -210,6 +213,7 @@ class ConsoleController extends Controller
             'name' => $data['name'], 'origin' => $origin, 'api_origin' => $apiOrigin, 'entry_path' => $entryPath,
             'rules' => $rules, 'denied' => $denied, 'credentials' => $credentials ?: null,
             'local_port' => $localPort, 'write_test' => $writeTest,
+            'environment_type' => $data['environment_type'] ?? 'production',
             'record_hint' => isset($data['record_hint']) ? trim($data['record_hint']) : null,
         ];
     }
@@ -238,6 +242,7 @@ class ConsoleController extends Controller
             return [$actor => [
                 'email' => $account['email'] ?? '', 'marker' => $account['marker'] ?? '',
                 'origin' => $account['origin'] ?? '', 'path' => $path,
+                'role' => $account['role'] ?? 'normal',
             ]];
         })->all();
 
@@ -245,6 +250,7 @@ class ConsoleController extends Controller
             'name' => $target->name, 'origin' => $target->origin, 'api_origin' => $api ?? '',
             'entry_path' => $target->entry_path, 'record_hint' => $target->record_hint ?? '',
             'write_test' => (bool) $target->write_test, 'rules' => $rules,
+            'environment_type' => $target->environment_type ?? 'production',
             'denied' => implode("\n", (array) $target->denied), 'accounts' => $accounts,
         ];
     }

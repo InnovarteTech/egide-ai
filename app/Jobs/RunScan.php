@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Models\CollaboratorHit;
 use App\Models\Scan;
 use App\Models\Workspace;
 use App\Security\Checks;
@@ -37,6 +38,8 @@ class RunScan implements ShouldQueue
 
     private array $issues = [];
 
+    private array $coverage = [];
+
     private float $startedAt = 0;
 
     public function __construct(public string $scanId) {}
@@ -44,6 +47,589 @@ class RunScan implements ShouldQueue
     public function retryUntil(): \DateTimeInterface
     {
         return now()->addMinutes(45);
+    }
+
+    private function aggressiveAllowed(): bool
+    {
+        return ($this->scan->scope['lab'] ?? false) || ($this->scan->scope['env_type'] ?? null) === 'test';
+    }
+
+    private function cover(string $check, string $route, string $verdict): void
+    {
+        $this->coverage[] = ['check' => $check, 'route' => $route, 'verdict' => $verdict];
+    }
+
+    private function saveCoverage(): void
+    {
+        if ($this->coverage) {
+            $this->scan->update(['coverage' => array_values($this->coverage)]);
+        }
+    }
+
+    private function bflaAssess(string $method, string $path, array $adminProbe, array $normalProbe): array
+    {
+        $privileged = ($adminProbe['status'] ?? 0) === 200 ? ($adminProbe['marker'] ?? null) : null;
+        if ($privileged === null) {
+            return ['verdict' => 'nao_testado', 'finding' => null];
+        }
+        if (! empty($normalProbe['blocked']) || ($normalProbe['status'] ?? 0) === 0) {
+            return ['verdict' => 'nao_testado', 'finding' => null];
+        }
+        $leaked = ($normalProbe['status'] ?? 0) === 200 && empty($normalProbe['blocked'])
+            && ($normalProbe['marker'] ?? null) === $privileged;
+        if ($leaked) {
+            return ['verdict' => 'falha', 'finding' => [
+                'title' => 'Conta comum acessa função administrativa', 'severity' => 'critical',
+                'category' => 'BFLA · autorização por função',
+                'evidence' => [
+                    'method' => $method, 'path' => $path, 'actor' => 'Conta comum', 'owner' => 'Admin',
+                    'normal_status' => $normalProbe['status'], 'admin_status' => $adminProbe['status'],
+                    'marker_verified' => true, 'reference' => 'OWASP API5:2023 · CWE-285',
+                ],
+                'remediation' => 'Verifique o papel da conta no servidor antes de responder rotas administrativas; não confie em ocultar o link na interface.',
+            ]];
+        }
+        if (in_array($normalProbe['status'] ?? 0, [401, 403, 404], true)) {
+            return ['verdict' => 'protegido', 'finding' => null];
+        }
+        if (($normalProbe['status'] ?? 0) === 200) {
+            return ['verdict' => 'protegido', 'finding' => null];
+        }
+
+        return ['verdict' => 'nao_testado', 'finding' => null];
+    }
+
+    private function idEnumCandidates(string $path, int $max = 5): ?array
+    {
+        if (! preg_match('~^(.*/)(\d+)(/?)$~', $path, $m)) {
+            return null;
+        }
+        [$prefix, $ownId, $slash] = [$m[1], (int) $m[2], $m[3]];
+        $paths = [];
+        foreach ([-1, 1, -2, 2, -3, 3] as $delta) {
+            $id = $ownId + $delta;
+            if ($id > 0 && $id !== $ownId && ! isset($paths[$id]) && count($paths) < $max) {
+                $paths[$id] = $prefix.$id.$slash;
+            }
+        }
+
+        return ['own_id' => $ownId, 'base_path' => $prefix.'{id}'.$slash, 'paths' => $paths];
+    }
+
+    private function idEnumAssess(string $basePath, int $ownId, int $probedId, array $probe, ?string $ownMarker): array
+    {
+        if (! empty($probe['blocked']) || ($probe['status'] ?? 0) === 0) {
+            return ['verdict' => 'nao_testado', 'finding' => null];
+        }
+        $marker = $probe['marker'] ?? null;
+        $cross = ($probe['status'] ?? 0) === 200 && empty($probe['blocked']) && $marker !== null && $marker !== $ownMarker;
+        if ($cross) {
+            return ['verdict' => 'falha', 'finding' => [
+                'title' => 'Troca de identificador lê registro de outra conta', 'severity' => 'high',
+                'category' => 'IDOR · enumeração de ID',
+                'evidence' => [
+                    'base_path' => $basePath, 'own_id' => $ownId, 'probed_id' => $probedId,
+                    'cross_marker' => $marker, 'reference' => 'OWASP API1:2023 · CWE-639',
+                ],
+                'remediation' => 'Verifique no servidor se o objeto pertence à conta autenticada antes de respondê-lo; prefira identificadores não sequenciais.',
+            ]];
+        }
+        if (in_array($probe['status'] ?? 0, [401, 403, 404], true)) {
+            return ['verdict' => 'protegido', 'finding' => null];
+        }
+        if (($probe['status'] ?? 0) === 200) {
+            return ['verdict' => 'protegido', 'finding' => null];
+        }
+
+        return ['verdict' => 'nao_testado', 'finding' => null];
+    }
+
+    private function massAssess(string $path, string $field, string $sentinel, array $write, array $after): array
+    {
+        if (! empty($write['blocked']) || ($write['status'] ?? 0) === 0) {
+            return ['verdict' => 'nao_testado', 'finding' => null];
+        }
+        if (($after['status'] ?? 0) !== 200) {
+            return ['verdict' => 'nao_testado', 'finding' => null];
+        }
+        $value = collect($after['fields'] ?? [])->firstWhere('key', $field)['value'] ?? null;
+        if ($value === $sentinel) {
+            return ['verdict' => 'falha', 'finding' => [
+                'title' => 'Servidor aceita campo privilegiado fora do formulário', 'severity' => 'critical',
+                'category' => 'Mass assignment · atribuição em massa',
+                'evidence' => [
+                    'method' => 'PATCH', 'path' => $path, 'field' => $field, 'persisted' => true,
+                    'write_status' => $write['status'] ?? null, 'reference' => 'OWASP API3:2023 · CWE-915',
+                ],
+                'remediation' => 'Aceite no servidor apenas os campos previstos (allowlist); ignore campos como role, is_admin, tenant_id ou price enviados pelo cliente.',
+            ]];
+        }
+
+        return ['verdict' => 'protegido', 'finding' => null];
+    }
+
+    private function excessiveAssess(string $path, array $apiFields, string $uiText): array
+    {
+        $sensitive = '~(email|mail|cpf|cnpj|phone|telefone|tenant|conta|internal|interno|salario|salary|role|is_admin|admin|senha|password|token|secret|saldo|balance|documento|^doc|endereco|address|ssn)~i';
+        foreach ($apiFields as $field) {
+            $key = (string) ($field['key'] ?? '');
+            $value = (string) ($field['value'] ?? '');
+            if ($key === '' || $value === '' || ! preg_match($sensitive, $key)) {
+                continue;
+            }
+            if (stripos($uiText, $value) === false) {
+                return ['verdict' => 'falha', 'finding' => [
+                    'title' => 'API devolve campo sensível que a tela não mostra', 'severity' => 'medium',
+                    'category' => 'ExcessiveData · exposição excessiva',
+                    'evidence' => [
+                        'method' => 'GET', 'path' => $path, 'field' => $key, 'in_ui' => false,
+                        'reference' => 'OWASP API3:2023 · CWE-213',
+                    ],
+                    'remediation' => 'Devolva na API só os campos que a tela usa; filtre no servidor campos sensíveis em vez de confiar que o cliente os esconde.',
+                ]];
+            }
+        }
+
+        return ['verdict' => 'protegido', 'finding' => null];
+    }
+
+    private function idEnumTest(string $ownRecordPath): void
+    {
+        if (! $this->aggressiveAllowed()) {
+            return;
+        }
+        $plan = $this->idEnumCandidates($ownRecordPath);
+        if (! $plan) {
+            return;
+        }
+        $this->scan->update(['phase' => 'Enumeração de identificador (IDOR)']);
+        $this->runner('/action', ['kind' => 'switch', 'actor' => 'b']);
+        $this->observe();
+        $own = $this->runner('/probe', ['path' => $ownRecordPath, 'markers' => []]);
+        $this->observe();
+        $ownMarker = ($own['status'] ?? 0) === 200 ? ($own['marker'] ?? null) : null;
+        if ($ownMarker === null) {
+            $this->cover('IDOR · enumeração de ID', $plan['base_path'], 'nao_testado');
+
+            return;
+        }
+        foreach ($plan['paths'] as $probedId => $candidate) {
+            $this->checkStop();
+            $probe = $this->runner('/probe', ['path' => $candidate, 'markers' => []]);
+            $this->observe();
+            $assessment = $this->idEnumAssess($plan['base_path'], $plan['own_id'], (int) $probedId, $probe, $ownMarker);
+            $this->cover('IDOR · enumeração de ID', $candidate, $assessment['verdict']);
+            if ($assessment['finding']) {
+                $this->scan->findings()->create($assessment['finding']);
+                $this->scan->event('finding', 'Enumeração de ID expôs registro alheio', "A conta leu {$candidate}, um registro de outra conta.", $assessment['finding']['evidence']);
+                break;
+            }
+        }
+    }
+
+    private function injectionReflectedAssess(string $probe, string $path, string $body, string $type = 'text/html'): array
+    {
+        if (stripos($type, 'html') === false) {
+            return ['verdict' => 'nao_testado', 'finding' => null];
+        }
+        if (stripos($body, $probe) !== false) {
+            return ['verdict' => 'falha', 'finding' => [
+                'title' => 'Entrada refletida sem escape (XSS)', 'severity' => 'high',
+                'category' => 'InjectionCheck · XSS refletido',
+                'evidence' => [
+                    'method' => 'GET', 'path' => $path, 'probe' => $probe, 'reflected' => true,
+                    'reference' => 'OWASP A03:2021 · CWE-79',
+                ],
+                'remediation' => 'Escape toda saída conforme o contexto (HTML, atributo, JS) e aplique uma Content-Security-Policy; nunca reflita entrada bruta na resposta.',
+            ]];
+        }
+
+        return ['verdict' => 'protegido', 'finding' => null];
+    }
+
+    private function injectionTimeAssess(string $path, float $baselineMs, float $payloadMs, int $payloadStatus = 200): array
+    {
+        if ($baselineMs <= 0 || $payloadStatus === 0) {
+            return ['verdict' => 'nao_testado', 'finding' => null];
+        }
+        if ($payloadMs - $baselineMs >= 4000 && $payloadMs >= 2 * $baselineMs) {
+            return ['verdict' => 'falha', 'finding' => [
+                'title' => 'Injeção de SQL por tempo (blind)', 'severity' => 'high',
+                'category' => 'InjectionCheck · SQLi por tempo',
+                'evidence' => [
+                    'method' => 'GET', 'path' => $path, 'baseline_ms' => round($baselineMs),
+                    'payload_ms' => round($payloadMs), 'reference' => 'OWASP A03:2021 · CWE-89',
+                ],
+                'remediation' => 'Use consultas parametrizadas (prepared statements); nunca concatene entrada do cliente em SQL.',
+            ]];
+        }
+
+        return ['verdict' => 'protegido', 'finding' => null];
+    }
+
+    private function ssrfAssess(string $path, array $hits, string $token): array
+    {
+        if ($hits) {
+            $hit = $hits[0];
+
+            return ['verdict' => 'falha', 'finding' => [
+                'title' => 'Servidor fez requisição para destino controlado (SSRF)', 'severity' => 'high',
+                'category' => 'SSRF · callback out-of-band',
+                'evidence' => [
+                    'method' => 'GET', 'path' => $path, 'source_ip' => $hit['source_ip'] ?? null,
+                    'callback_token' => $token, 'callback_path' => $hit['path'] ?? null,
+                    'reference' => 'OWASP A10:2021 · API7:2023 · CWE-918',
+                ],
+                'remediation' => 'Valide e restrinja destinos de requisições feitas pelo servidor (allowlist de hosts); bloqueie redes internas e metadados de nuvem.',
+            ]];
+        }
+
+        return ['verdict' => 'nao_testado', 'finding' => null];
+    }
+
+    private function jwtAssess(string $token): array
+    {
+        $parts = explode('.', $token);
+        if (count($parts) < 2) {
+            return ['verdict' => 'nao_testado', 'finding' => null];
+        }
+        $decode = fn ($segment) => json_decode(base64_decode(strtr($segment, '-_', '+/').str_repeat('=', (4 - strlen($segment) % 4) % 4), true) ?: '', true);
+        $header = $decode($parts[0]);
+        $payload = $decode($parts[1]);
+        if (! is_array($header) || ! isset($header['alg'])) {
+            return ['verdict' => 'nao_testado', 'finding' => null];
+        }
+        $alg = strtolower((string) $header['alg']);
+        $hasExp = is_array($payload) && isset($payload['exp']);
+        if ($alg === 'none') {
+            return ['verdict' => 'falha', 'finding' => [
+                'title' => 'Token JWT aceita algoritmo "none"', 'severity' => 'critical',
+                'category' => 'AuthCheck · JWT fraco',
+                'evidence' => ['alg' => 'none', 'has_exp' => $hasExp, 'reference' => 'OWASP API2:2023 · CWE-347'],
+                'remediation' => 'Rejeite tokens com alg "none"; fixe o algoritmo esperado e valide a assinatura com um segredo forte.',
+            ]];
+        }
+        if (! $hasExp) {
+            return ['verdict' => 'falha', 'finding' => [
+                'title' => 'Token JWT sem expiração', 'severity' => 'high',
+                'category' => 'AuthCheck · JWT fraco',
+                'evidence' => ['alg' => $alg, 'has_exp' => false, 'reference' => 'OWASP API2:2023 · CWE-613'],
+                'remediation' => 'Emita tokens com expiração curta (claim exp) e rotacione o segredo de assinatura.',
+            ]];
+        }
+
+        return ['verdict' => 'nao_testado', 'finding' => null];
+    }
+
+    private function authRateAssess(string $path, array $statuses): array
+    {
+        if (in_array(429, $statuses, true)) {
+            return ['verdict' => 'protegido', 'finding' => null];
+        }
+        if (count($statuses) < 8) {
+            return ['verdict' => 'nao_testado', 'finding' => null];
+        }
+
+        return ['verdict' => 'falha', 'finding' => [
+            'title' => 'Login sem limite de tentativas', 'severity' => 'medium',
+            'category' => 'AuthCheck · sem limite de tentativas',
+            'evidence' => [
+                'method' => 'POST', 'path' => $path, 'attempts' => count($statuses),
+                'throttled' => false, 'reference' => 'OWASP A07:2021 · CWE-307',
+            ],
+            'remediation' => 'Aplique limite por conta e por IP no login, com atraso progressivo ou bloqueio temporário após falhas repetidas.',
+        ]];
+    }
+
+    private function inventoryAssess(array $reachable, array $uiLinked): array
+    {
+        $unlinked = array_values(array_diff($reachable, $uiLinked));
+        if (! $unlinked) {
+            return ['verdict' => 'protegido', 'finding' => null];
+        }
+
+        return ['verdict' => 'falha', 'finding' => [
+            'title' => 'Endpoints acessíveis fora do inventário da aplicação', 'severity' => 'low',
+            'category' => 'InventoryCheck · inventário de API',
+            'evidence' => [
+                'endpoints' => array_slice($unlinked, 0, 20), 'count' => count($unlinked),
+                'reference' => 'OWASP API9:2023 · CWE-1059',
+            ],
+            'remediation' => 'Documente e versione a superfície da API; remova ou proteja endpoints antigos e não utilizados pela interface.',
+        ]];
+    }
+
+    private function massTest(string $owner, string $recordPath): void
+    {
+        if (! $this->aggressiveAllowed()) {
+            return;
+        }
+        $this->scan->update(['phase' => 'Atribuição em massa (mass assignment)']);
+        $this->runner('/action', ['kind' => 'switch', 'actor' => $owner]);
+        $this->observe();
+        $before = $this->runner('/fields', ['path' => $recordPath]);
+        if (($before['status'] ?? 0) !== 200) {
+            $this->cover('Mass assignment · atribuição em massa', $recordPath, 'nao_testado');
+
+            return;
+        }
+        $field = 'role';
+        $original = collect($before['fields'] ?? [])->firstWhere('key', $field)['value'] ?? null;
+        $sentinel = 'EGIDE-MA-'.strtoupper(bin2hex(random_bytes(5)));
+        $write = $this->runner('/write', ['path' => $recordPath, 'field' => $field, 'value' => $sentinel]);
+        $after = $this->runner('/fields', ['path' => $recordPath]);
+        $assessment = $this->massAssess($recordPath, $field, $sentinel, $write, $after);
+        $this->cover('Mass assignment · atribuição em massa', $recordPath, $assessment['verdict']);
+
+        $restored = $assessment['verdict'] !== 'falha';
+        if ($assessment['verdict'] === 'falha') {
+            try {
+                $this->runner('/write', ['path' => $recordPath, 'field' => $field, 'value' => (string) ($original ?? '')]);
+                $back = collect(($this->runner('/fields', ['path' => $recordPath]))['fields'] ?? [])->firstWhere('key', $field)['value'] ?? null;
+                $restored = $back === $original || ($original === null && in_array($back, [null, ''], true));
+            } catch (Throwable) {
+                $restored = false;
+            }
+        }
+        if ($assessment['finding']) {
+            $assessment['finding']['evidence']['restored'] = $restored;
+            $this->scan->findings()->create($assessment['finding']);
+            $this->scan->event('finding', 'Campo privilegiado aceito pelo servidor',
+                "O servidor persistiu \"{$field}\" enviado fora do formulário em {$recordPath}.".($restored ? '' : ' Atenção: o valor original pode não ter sido restaurado.'),
+                $assessment['finding']['evidence']);
+        }
+    }
+
+    private function callbackToken(): array
+    {
+        $callback = $this->scan->scope['callback'] ?? null;
+        if (empty($callback['token'])) {
+            $token = 'cb'.strtolower(bin2hex(random_bytes(12)));
+            $base = rtrim((string) (config('egide.callback_url') ?: config('app.url')), '/');
+            $callback = ['token' => $token, 'base' => $base, 'url' => $base.'/api/colaborador/'.$token];
+            $scope = $this->scan->scope;
+            $scope['callback'] = $callback;
+            $this->scan->update(['scope' => $scope]);
+        }
+
+        return $callback;
+    }
+
+    private function inScope(string $path): bool
+    {
+        return ($this->scan->scope['lab'] ?? false) || Scope::allows($this->scan->scope, 'GET', $path);
+    }
+
+    private function softCheck(string $check, callable $fn): void
+    {
+        try {
+            $fn();
+        } catch (Throwable $error) {
+            if ($this->scan->fresh()?->stop_requested_at) {
+                throw $error;
+            }
+            $this->scan->event('test', 'Verificação não concluída', $check.' não pôde ser executada nesta sessão.');
+        }
+    }
+
+    private function adminRoutes(array $routes): array
+    {
+        return array_values(array_filter($routes, fn ($route) => preg_match('~/(admin|administra|manage|gerenc|gestao|backoffice|relatorio)~i', $route)));
+    }
+
+    private function injectionTest(array $candidates): void
+    {
+        if (! $this->aggressiveAllowed() || ! $candidates) {
+            return;
+        }
+        $this->scan->update(['phase' => 'Injeção (XSS e SQLi)']);
+        foreach (array_slice(array_values(array_unique($candidates)), 0, 4) as $route) {
+            $this->checkStop();
+            [$path, $query] = array_pad(explode('?', $route, 2), 2, '');
+            if (preg_match('~(delete|remove|destroy|cancel|logout|sair|excluir|apagar|encerrar|revoke|reset)~i', $path)) {
+                continue;
+            }
+            parse_str($query, $params);
+            if (! $params) {
+                $params = ['q' => '1'];
+            }
+            if (! $this->inScope($path)) {
+                continue;
+            }
+            $param = array_key_first($params);
+
+            $xss = '"><egideXSS'.strtolower(bin2hex(random_bytes(3))).'>';
+            $probe = $this->runner('/probe', ['path' => $path, 'query' => [...$params, $param => $xss], 'markers' => []]);
+            $this->observe();
+            $reflected = $this->injectionReflectedAssess($xss, $path, $probe['sample'] ?? '', $probe['type'] ?? '');
+            $this->cover('InjectionCheck · XSS refletido', $path, $reflected['verdict']);
+            if ($reflected['finding']) {
+                $this->scan->findings()->create($reflected['finding']);
+                $this->scan->event('finding', 'Entrada refletida sem escape', "A resposta de {$path} devolveu o marcador de teste sem escape.", $reflected['finding']['evidence']);
+            }
+
+            $base = $this->runner('/probe', ['path' => $path, 'query' => [...$params, $param => '1'], 'markers' => []]);
+            $this->observe();
+            $slow = $this->runner('/probe', ['path' => $path, 'query' => [...$params, $param => "1' AND SLEEP(5)-- -"], 'markers' => []]);
+            $this->observe();
+            $time = $this->injectionTimeAssess($path, (float) ($base['elapsed'] ?? 0), (float) ($slow['elapsed'] ?? 0), (int) ($slow['status'] ?? 200));
+            $this->cover('InjectionCheck · SQLi por tempo', $path, $time['verdict']);
+            if ($time['finding']) {
+                $this->scan->findings()->create($time['finding']);
+                $this->scan->event('finding', 'Atraso controlado indica SQLi', "A carga temporal em {$path} respondeu {$time['finding']['evidence']['payload_ms']}ms contra {$time['finding']['evidence']['baseline_ms']}ms de base.", $time['finding']['evidence']);
+            }
+        }
+    }
+
+    private function ssrfTest(array $candidates): void
+    {
+        if (! $this->aggressiveAllowed() || ! $candidates) {
+            return;
+        }
+        $callback = $this->callbackToken();
+        $this->scan->update(['phase' => 'SSRF (callback out-of-band)']);
+        $index = 0;
+        foreach (array_slice(array_values(array_unique($candidates)), 0, 4) as $route) {
+            $this->checkStop();
+            [$path, $query] = array_pad(explode('?', $route, 2), 2, '');
+            parse_str($query, $params);
+            $param = null;
+            foreach (array_keys($params ?: []) as $key) {
+                if (preg_match('~url|uri|link|dest|host|callback|webhook|redirect|next|feed|proxy~i', $key)) {
+                    $param = $key;
+                    break;
+                }
+            }
+            if (! $param) {
+                $param = preg_match('~integrador|webhook|fetch|proxy|callback~i', $path) ? 'url' : null;
+            }
+            if (! $param || ! $this->inScope($path)) {
+                continue;
+            }
+            $routeToken = $callback['token'].sprintf('r%02d', $index++);
+            $this->runner('/probe', ['path' => $path, 'query' => [...$params, $param => $callback['base'].'/api/colaborador/'.$routeToken], 'markers' => []]);
+            $this->observe();
+            usleep(800000);
+            $hits = CollaboratorHit::where('token', $routeToken)->get()
+                ->map(fn ($hit) => ['source_ip' => $hit->source_ip, 'path' => $hit->path, 'received_at' => (string) $hit->received_at])->all();
+            $assessment = $this->ssrfAssess($path, $hits, $routeToken);
+            $this->cover('SSRF · callback out-of-band', $path, $assessment['verdict']);
+            if ($assessment['finding']) {
+                $this->scan->findings()->create($assessment['finding']);
+                $this->scan->event('finding', 'Servidor chamou o coletor da Égide', "A injeção em {$path} fez o servidor chamar o callback out-of-band.", $assessment['finding']['evidence']);
+                break;
+            }
+        }
+    }
+
+    private function excessiveTest(string $owner, string $recordPath): void
+    {
+        if (! $this->aggressiveAllowed()) {
+            return;
+        }
+        $this->scan->update(['phase' => 'Exposição excessiva de dados']);
+        $this->runner('/action', ['kind' => 'switch', 'actor' => $owner]);
+        $observation = $this->observe();
+        $fields = $this->runner('/fields', ['path' => $recordPath]);
+        if (($fields['status'] ?? 0) !== 200 || empty($fields['fields'])) {
+            $this->cover('ExcessiveData · exposição excessiva', $recordPath, 'nao_testado');
+
+            return;
+        }
+        $labels = collect($this->visible($observation['page']))->map(fn ($control) => $control['label'] ?? '')->implode(' ');
+        $uiText = ($observation['page']['text'] ?? '').' '.$labels;
+        $assessment = $this->excessiveAssess($recordPath, $fields['fields'], $uiText);
+        $this->cover('ExcessiveData · exposição excessiva', $recordPath, $assessment['verdict']);
+        if ($assessment['finding']) {
+            $this->scan->findings()->create($assessment['finding']);
+            $this->scan->event('finding', 'Campo sensível só na API', "A API devolveu \"{$assessment['finding']['evidence']['field']}\" que a tela não mostra em {$recordPath}.", $assessment['finding']['evidence']);
+        }
+    }
+
+    private function unauthAssess(string $method, string $path, array $authProbe, array $anonProbe): array
+    {
+        $protected = ($authProbe['status'] ?? 0) === 200 ? ($authProbe['marker'] ?? null) : null;
+        if ($protected === null) {
+            return ['verdict' => 'nao_testado', 'finding' => null];
+        }
+        if (! empty($anonProbe['blocked']) || ($anonProbe['status'] ?? 0) === 0) {
+            return ['verdict' => 'nao_testado', 'finding' => null];
+        }
+        $sameData = ($anonProbe['status'] ?? 0) === 200 && empty($anonProbe['blocked'])
+            && ($anonProbe['marker'] ?? null) === $protected;
+        if ($sameData) {
+            return ['verdict' => 'falha', 'finding' => [
+                'title' => 'Rota autenticada responde sem sessão', 'severity' => 'high',
+                'category' => 'Acesso sem autenticação',
+                'evidence' => [
+                    'method' => $method, 'path' => $path, 'auth_status' => 200,
+                    'anon_status' => $anonProbe['status'], 'same_data' => true,
+                    'reference' => 'OWASP A01:2021 · CWE-306',
+                ],
+                'remediation' => 'Exija autenticação no servidor para esta rota; não dependa de esconder o link na interface.',
+            ]];
+        }
+        if (in_array($anonProbe['status'] ?? 0, [401, 403, 404], true)) {
+            return ['verdict' => 'protegido', 'finding' => null];
+        }
+        if (($anonProbe['status'] ?? 0) === 200) {
+            return ['verdict' => 'protegido', 'finding' => null];
+        }
+
+        return ['verdict' => 'nao_testado', 'finding' => null];
+    }
+
+    private function unauthTest(array $protectedRoutes): void
+    {
+        if (! $this->aggressiveAllowed() || ! $protectedRoutes) {
+            return;
+        }
+        $this->scan->update(['phase' => 'Acesso sem autenticação']);
+        foreach (array_slice($protectedRoutes, 0, 6) as $route) {
+            $this->checkStop();
+            $authProbe = $this->runner('/probe', ['path' => $route, 'markers' => []]);
+            $this->observe();
+            $anonProbe = $this->runner('/probe', ['path' => $route, 'markers' => [$authProbe['marker'] ?? ''], 'anon' => true]);
+            $this->observe();
+            $assessment = $this->unauthAssess('GET', $route, $authProbe, $anonProbe);
+            $this->cover('Acesso sem autenticação', $route, $assessment['verdict']);
+            if ($assessment['finding']) {
+                $this->scan->findings()->create($assessment['finding']);
+                $this->scan->event('finding', 'Rota acessível sem autenticação', "A rota {$route} respondeu o mesmo dado protegido sem sessão.", $assessment['finding']['evidence']);
+            } elseif ($assessment['verdict'] === 'protegido') {
+                $this->scan->event('verified', 'Rota exige autenticação', "A rota {$route} negou acesso anônimo.");
+            }
+        }
+    }
+
+    private function bflaTest(Planner $planner, array $adminRoutes): void
+    {
+        $accounts = $this->scan->scope['accounts'] ?? [];
+        $admin = collect($accounts)->search(fn ($a) => ($a['role'] ?? 'normal') === 'admin');
+        $normal = collect($accounts)->search(fn ($a) => ($a['role'] ?? 'normal') === 'normal');
+        if ($admin === false || $normal === false || ! $this->aggressiveAllowed() || ! $adminRoutes) {
+            return;
+        }
+        $this->scan->update(['phase' => 'Autorização por função (BFLA)']);
+        foreach (array_slice($adminRoutes, 0, 6) as $route) {
+            $this->checkStop();
+            $this->runner('/action', ['kind' => 'switch', 'actor' => $admin]);
+            $this->observe();
+            $adminProbe = $this->runner('/probe', ['path' => $route, 'markers' => []]);
+            $this->observe();
+            $this->runner('/action', ['kind' => 'switch', 'actor' => $normal]);
+            $this->observe();
+            $normalProbe = $this->runner('/probe', ['path' => $route, 'markers' => [$adminProbe['marker'] ?? '']]);
+            $this->observe();
+            $assessment = $this->bflaAssess('GET', $route, $adminProbe, $normalProbe);
+            $this->cover('BFLA · autorização por função', $route, $assessment['verdict']);
+            if ($assessment['finding']) {
+                $this->scan->findings()->create($assessment['finding']);
+                $this->scan->event('finding', 'Função administrativa sem checagem de papel', "A conta comum recebeu dados privilegiados em {$route}.", $assessment['finding']['evidence']);
+            } elseif ($assessment['verdict'] === 'protegido') {
+                $this->scan->event('verified', 'Função administrativa protegida', "A conta comum foi negada em {$route}.");
+            }
+        }
     }
 
     public function handle(Planner $planner): void
@@ -115,6 +701,7 @@ class RunScan implements ShouldQueue
             }
             $this->checkStop();
             $this->executiveSummary($planner, $result);
+            $this->saveCoverage();
             $this->scan->update(['status' => 'completed', 'phase' => 'Relatório', 'result' => $result, 'finished_at' => now()]);
             $this->scan->event('system', 'Sessão concluída', 'Relatório e evidências disponíveis.');
             try {
@@ -136,6 +723,10 @@ class RunScan implements ShouldQueue
                 report($error);
             }
         } finally {
+            try {
+                $this->saveCoverage();
+            } catch (Throwable) {
+            }
             if ($started) {
                 try {
                     $this->runner('/stop');
@@ -230,8 +821,48 @@ class RunScan implements ShouldQueue
         if (! empty($this->scan->scope['write'])) {
             $this->writeTest($planner, $actor, $owner, $otherRecord['path']);
         }
+        if ($this->aggressiveAllowed()) {
+            $this->labBattery($planner, $variant = str_contains($otherRecord['path'] ?? '', 'corrigido') ? 'corrigido' : 'vulneravel', $actor, $owner, $ownRecord, $otherRecord);
+        }
+        $this->saveCoverage();
 
         return $result;
+    }
+
+    private function labBattery(Planner $planner, string $variant, string $actor, string $owner, array $ownRecord, array $otherRecord): void
+    {
+        $adminRoute = "/{$variant}/admin/relatorio";
+        $this->scan->update(['phase' => 'Autorização por função (BFLA)']);
+        $this->runner('/action', ['kind' => 'switch', 'actor' => 'a']);
+        $this->observe();
+        $adminProbe = $this->runner('/probe', ['path' => $adminRoute, 'markers' => []]);
+        $this->observe();
+        $this->runner('/action', ['kind' => 'switch', 'actor' => 'b']);
+        $this->observe();
+        $normalProbe = $this->runner('/probe', ['path' => $adminRoute, 'markers' => [$adminProbe['marker'] ?? '']]);
+        $this->observe();
+        $bfla = $this->bflaAssess('GET', $adminRoute, $adminProbe, $normalProbe);
+        $this->cover('BFLA · autorização por função', $adminRoute, $bfla['verdict']);
+        if ($bfla['finding']) {
+            $this->scan->findings()->create($bfla['finding']);
+            $this->scan->event('finding', 'Função administrativa sem checagem de papel', "A conta comum recebeu dados privilegiados em {$adminRoute}.", $bfla['finding']['evidence']);
+        }
+
+        $this->softCheck('Acesso sem autenticação', fn () => $this->unauthTest([str_replace('/extratos/', '/publico/', $otherRecord['path'])]));
+        $this->softCheck('Enumeração de identificador', fn () => $this->idEnumTest($ownRecord['path']));
+        $this->softCheck('Atribuição em massa', fn () => $this->massTest($actor, $ownRecord['path']));
+        $this->softCheck('Exposição excessiva de dados', fn () => $this->excessiveTest($actor, $ownRecord['path']));
+        $this->softCheck('Injeção', fn () => $this->injectionTest(["/servicos/{$variant}/busca?q=1", "/servicos/{$variant}/consulta?id=1"]));
+        $this->softCheck('SSRF', fn () => $this->ssrfTest(["/servicos/{$variant}/integrador?url=x"]));
+
+        $reachable = ["/{$variant}/faturas", "/{$variant}/painel", $adminRoute, $ownRecord['path'], "/servicos/{$variant}/busca"];
+        $uiLinked = ["/{$variant}/faturas", "/{$variant}/painel", "/{$variant}/ajuda", $ownRecord['path']];
+        $inventory = $this->inventoryAssess($reachable, $uiLinked);
+        $this->cover('InventoryCheck · inventário de API', '(superfície observada)', $inventory['verdict']);
+        if ($inventory['finding']) {
+            $this->scan->findings()->create($inventory['finding']);
+            $this->scan->event('finding', 'Endpoints fora do inventário', 'Rotas acessíveis que a interface não usa foram alcançadas nesta sessão.', $inventory['finding']['evidence']);
+        }
     }
 
     private function enrollAndExplore(string $actor, array $page, Planner $planner): array
@@ -443,11 +1074,31 @@ class RunScan implements ShouldQueue
             $this->scan->event('verified', 'Isolamento confirmado nesta rota', 'As duas contas acessaram seus próprios registros. A aplicação negou o acesso cruzado.', $evidence);
             $result = 'protected';
         }
-        if ($result !== null && ! empty($this->scan->scope['write'])) {
-            $this->writeTest($planner, 'b', 'a', $paths['a']);
+        if ($result !== null && $this->aggressiveAllowed() && ! empty($this->scan->scope['write'])) {
+            $this->softCheck('Escrita entre contas', fn () => $this->writeTest($planner, 'b', 'a', $paths['a']));
+            $this->softCheck('Atribuição em massa', fn () => $this->massTest('a', $paths['a']));
+        }
+        if ($this->aggressiveAllowed()) {
+            $routes = $this->sessionGetRoutes();
+            $adminRoutes = $this->adminRoutes($routes);
+            $injectable = array_values(array_filter($routes, fn ($route) => str_contains($route, '=')));
+            $this->softCheck('Autorização por função (BFLA)', fn () => $this->bflaTest($planner, $adminRoutes));
+            $this->softCheck('Acesso sem autenticação', fn () => $this->unauthTest($routes));
+            $this->softCheck('Enumeração de identificador', fn () => $this->idEnumTest($paths['b']));
+            $this->softCheck('Exposição excessiva de dados', fn () => $this->excessiveTest('b', $paths['b']));
+            $this->softCheck('Injeção', fn () => $this->injectionTest($injectable));
+            $this->softCheck('SSRF', fn () => $this->ssrfTest($injectable));
         }
 
         return $result ?? $this->inconclusive('A resposta cruzada não permitiu concluir se o registro ficou exposto.', $evidence);
+    }
+
+    private function sessionGetRoutes(): array
+    {
+        return collect(array_keys($this->endpoints))
+            ->filter(fn ($key) => str_starts_with($key, 'GET /'))
+            ->map(fn ($key) => substr($key, 4))
+            ->unique()->values()->all();
     }
 
     private function discoverExternal(Planner $planner, array $observation, string $actor, array $markers): ?string
