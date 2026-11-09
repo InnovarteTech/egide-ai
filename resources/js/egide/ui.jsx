@@ -51,6 +51,7 @@ export function Tabs({ name, label, tabs, value, onChange, className = '' }) {
             aria-selected={value === tab.key} aria-controls={value === tab.key ? name + '-panel-' + tab.key : undefined} tabIndex={value === tab.key ? 0 : -1}
             onClick={() => onChange(tab.key)} onKeyDown={event => move(event, index)}>
             {tab.icon && <tab.icon size={16} />}
+            {tab.step && <span className="tab-step" aria-hidden="true">{tab.step}</span>}
             <span>{tab.label}</span>
             {tab.count !== undefined && <span className={'tab-count ' + (tab.tone ?? '')}>{tab.count}</span>}
             {tab.alert && <><i className="tab-alert" aria-hidden="true" /><span className="sr-only">, revise os campos</span></>}

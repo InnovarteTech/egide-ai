@@ -165,7 +165,14 @@ def start(data):
                 or not re.fullmatch(r"[a-z0-9.-]+", account.hostname or "")):
             raise ValueError("Origem de conta inválida")
         bases[actor] = value
-    hosts = sorted({url.hostname, *(urllib.parse.urlsplit(value).hostname for value in bases.values())})
+    api = None
+    if data.get("api") is not None:
+        api = urllib.parse.urlsplit(data["api"])
+        if (is_lab or data.get("local_port") is not None or api.scheme != "https" or api.port not in (443, None)
+                or api.path not in ("", "/") or api.query or api.fragment
+                or not re.fullmatch(r"[a-z0-9.-]+", api.hostname or "") or api.hostname.endswith(LOCAL_SUFFIX)):
+            raise ValueError("Domínio da API inválido")
+    hosts = sorted({url.hostname, *(urllib.parse.urlsplit(value).hostname for value in bases.values()), *([api.hostname] if api else [])})
     local_port = data.get("local_port")
     if local_port is not None:
         if (not LOCAL_ENABLED or is_lab or type(local_port) is not int or not 0 < local_port < 65536
@@ -185,6 +192,7 @@ def start(data):
     }))
     SESSION = {
         "id": data["id"], "dir": folder, "url": data["url"], "urls": dict(bases), "bases": bases, "actor": "a",
+        "api": api.hostname if api else None,
         "origin": f"{url.scheme}://{url.netloc}",
         "offset": 0, "lab": is_lab, "last": time.monotonic(), "events": event_path,
     }
@@ -294,10 +302,21 @@ def act(data):
 
 def probe(data):
     path = data["path"]
+    url = None
+    if path.startswith("https://"):
+        target = urllib.parse.urlsplit(path)
+        if (not SESSION.get("api") or target.hostname != SESSION["api"] or target.port not in (443, None)
+                or target.query or target.fragment or target.username or target.password):
+            raise ValueError("Rota fora do domínio da API")
+        path = target.path
+        url = f"https://{SESSION['api']}{path}"
     if (not re.fullmatch(r"/(?:[a-zA-Z0-9._@-]+/)*[a-zA-Z0-9._@-]*", path)
             or any(part in (".", "..") for part in path.split("/")) or len(path) > 450):
         raise ValueError("Rota inválida")
-    return bridge_call({"kind": "probe", "path": path, "origin": actor_origin(), "markers": data.get("markers", [])})
+    command = {"kind": "probe", "path": path, "origin": actor_origin(), "markers": data.get("markers", [])}
+    if url:
+        command["url"] = url
+    return bridge_call(command)
 
 
 def bridge_call(command):
@@ -320,7 +339,7 @@ def mailbox(email):
     if not SESSION["lab"] or not re.fullmatch(r"[ab]-[0-9a-f-]{8,40}@egide\.test", email):
         raise ValueError("Caixa postal fora do laboratório")
     params = urllib.parse.urlencode({"query": "to:" + email})
-    for _ in range(10):
+    for _ in range(40):
         with urllib.request.urlopen("http://mailpit:8025/api/v1/search?" + params, timeout=4) as response:
             messages = json.load(response).get("messages", [])
         if messages:

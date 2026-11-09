@@ -21,7 +21,7 @@ final class Scope
         return str_ends_with((string) parse_url($origin, PHP_URL_HOST), self::LOCAL_SUFFIX);
     }
 
-    public static function origin(string $url): string
+    public static function origin(string $url, string $field = 'origin'): string
     {
         $parts = parse_url(trim($url));
         $host = strtolower($parts['host'] ?? '');
@@ -31,7 +31,7 @@ final class Scope
             || isset($parts['user']) || isset($parts['pass']) || isset($parts['port'])
             || isset($parts['query']) || isset($parts['fragment'])
             || ! in_array($parts['path'] ?? '', ['', '/'], true)) {
-            throw ValidationException::withMessages(['origin' => 'Informe a origem HTTPS, como https://staging.empresa.com.br.']);
+            throw ValidationException::withMessages([$field => 'Informe a origem HTTPS, como https://staging.empresa.com.br.']);
         }
 
         return 'https://'.$host;
@@ -62,11 +62,28 @@ final class Scope
         return $rules;
     }
 
+    public static function route(array $scope, string $route): ?array
+    {
+        if (! str_starts_with($route, 'https://')) {
+            return self::path($route) ? ['host' => null, 'path' => $route] : null;
+        }
+        $parts = parse_url($route);
+        $api = isset($scope['api']) ? parse_url($scope['api'], PHP_URL_HOST) : null;
+        if (! $api || ($parts['host'] ?? null) !== $api || isset($parts['port']) || isset($parts['user']) || isset($parts['pass'])
+            || isset($parts['query']) || isset($parts['fragment']) || ! self::path($parts['path'] ?? '')) {
+            return null;
+        }
+
+        return ['host' => $api, 'path' => $parts['path']];
+    }
+
     public static function allows(array $scope, string $method, string $path): bool
     {
-        if (! self::path($path)) {
+        $route = self::route($scope, $path);
+        if ($route === null) {
             return false;
         }
+        $path = $route['path'];
 
         foreach ($scope['denied'] as $denied) {
             if ($path === $denied || str_starts_with($path, $denied.'/')) {
@@ -101,7 +118,7 @@ final class Scope
 
     public static function origins(Target $target): array
     {
-        $origins = [$target->origin];
+        $origins = array_filter([$target->origin, $target->api_origin]);
         foreach ((array) $target->credentials as $account) {
             if (! empty($account['origin'])) {
                 $origins[] = $account['origin'];
@@ -122,7 +139,7 @@ final class Scope
         }
 
         return [
-            'url' => ($urls['a'] ?? $target->origin.$target->entry_path), 'lab' => false,
+            'url' => ($urls['a'] ?? $target->origin.$target->entry_path), 'lab' => false, 'api' => $target->api_origin ?: null,
             'urls' => $urls, 'rules' => $target->rules, 'denied' => $target->denied,
             'local_port' => $target->local_port ?: null,
         ];

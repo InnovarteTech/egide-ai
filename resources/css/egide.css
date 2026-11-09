@@ -587,3 +587,12 @@ code.request{font-size:.78rem;overflow-wrap:anywhere;color:#2d2340}
 .engine-facts dd{margin:0;font-family:var(--display);font-weight:800;font-size:1.02rem;overflow-wrap:anywhere}
 .engine-facts dd.mono{font-family:var(--mono);font-weight:600;font-size:.88rem}
 @media(max-width:700px){.engine-facts{grid-template-columns:1fr;gap:14px}.engine-facts>div{border-right:0}}
+.tab-step{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:50%;background:#efeaf8;color:var(--muted);font-size:.7rem;font-weight:800;font-variant-numeric:tabular-nums}
+[role=tab][aria-selected=true] .tab-step{background:var(--accent);color:#fff}
+.field>.field-title{font-weight:700;color:#2d2340}
+.marker-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start}
+.marker-actions{display:flex;gap:6px;padding-top:27px}
+.asset-api{color:var(--muted)}
+.verify-urls{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:4px;font-size:.78rem;color:#4b4160;overflow-wrap:anywhere}
+@media(max-width:700px){.marker-row{grid-template-columns:1fr;gap:0}.marker-actions{padding-top:0;margin:-6px 0 14px}}
+.field>.segmented,.form-stack>.segmented{justify-self:start}

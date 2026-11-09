@@ -55,7 +55,10 @@ class ConsoleController extends Controller
     public function assets(Request $request)
     {
         return Inertia::render('Assets', [
-            'targets' => Target::where('user_id', $request->user()->id)->latest()->get(),
+            'targets' => Target::where('user_id', $request->user()->id)->latest()->get()->map(fn (Target $target) => [
+                ...$target->toArray(),
+                'verify_urls' => array_map(fn ($origin) => $origin.'/.well-known/egide-verification.txt', Scope::origins($target)),
+            ]),
             'localTargets' => Scope::localEnabled(),
         ]);
     }
@@ -63,7 +66,7 @@ class ConsoleController extends Controller
     public function createTarget(Request $request)
     {
         $data = $request->validate([
-            'name' => 'required|string|max:100', 'origin' => 'required|string|max:220',
+            'name' => 'required|string|max:100', 'origin' => 'required|string|max:220', 'api_origin' => 'nullable|string|max:220',
             'entry_path' => 'required|string|max:180', 'rules' => 'required|string|max:1600',
             'denied' => 'nullable|string|max:800',
             'email_a' => 'nullable|string|max:180|required_with:password_a',
@@ -88,6 +91,16 @@ class ConsoleController extends Controller
         if ($localPort === null && Scope::isLocalOrigin($origin)) {
             throw ValidationException::withMessages(['origin' => 'Origens '.Scope::LOCAL_SUFFIX.' só funcionam no modo local, com a porta informada.']);
         }
+        $apiOrigin = empty($data['api_origin']) ? null : Scope::origin($data['api_origin'], 'api_origin');
+        if ($apiOrigin !== null && $localPort !== null) {
+            throw ValidationException::withMessages(['api_origin' => 'No modo local, a API entra pelo mesmo endereço com --rota no egide-local.']);
+        }
+        if ($apiOrigin !== null && Scope::isLocalOrigin($apiOrigin)) {
+            throw ValidationException::withMessages(['api_origin' => 'Origens '.Scope::LOCAL_SUFFIX.' só funcionam no modo local, com a porta informada.']);
+        }
+        if ($apiOrigin === $origin) {
+            throw ValidationException::withMessages(['api_origin' => 'A API já está no mesmo domínio. Escolha "No mesmo domínio".']);
+        }
         $entryPath = $data['entry_path'];
         $rules = Scope::rules($data['rules']);
         $denied = array_values(array_filter(array_map('trim', preg_split('/\R/', $data['denied'] ?? ''))));
@@ -107,7 +120,7 @@ class ConsoleController extends Controller
         }
         foreach (['a', 'b'] as $actor) {
             if (! empty($data['email_'.$actor])) {
-                $accountOrigin = empty($data['origin_'.$actor]) ? null : Scope::origin($data['origin_'.$actor]);
+                $accountOrigin = empty($data['origin_'.$actor]) ? null : Scope::origin($data['origin_'.$actor], 'origin_'.$actor);
                 if ($accountOrigin && $localPort === null && Scope::isLocalOrigin($accountOrigin)) {
                     throw ValidationException::withMessages(['origin_'.$actor => 'Subdomínios '.Scope::LOCAL_SUFFIX.' só funcionam no modo local, com a porta informada.']);
                 }
@@ -118,8 +131,13 @@ class ConsoleController extends Controller
                     throw ValidationException::withMessages(['origin_'.$actor => 'Use um subdomínio do mesmo domínio do ambiente, como https://empresa-a.seuapp.com.br.']);
                 }
                 $recordPath = $data['path_'.$actor] ?? null;
-                if ($recordPath !== null && (! Scope::path($recordPath) || ! Scope::allows(compact('rules', 'denied'), 'GET', $recordPath))) {
-                    throw ValidationException::withMessages(['path_'.$actor => 'Use uma rota GET permitida pelas regras, sem parâmetros, como /api/pedidos/123.']);
+                if ($recordPath !== null && $apiOrigin !== null && str_starts_with($recordPath, '/')) {
+                    $recordPath = $apiOrigin.$recordPath;
+                }
+                if ($recordPath !== null && ! Scope::allows(['rules' => $rules, 'denied' => $denied, 'api' => $apiOrigin], 'GET', $recordPath)) {
+                    throw ValidationException::withMessages(['path_'.$actor => $apiOrigin
+                        ? 'Use uma rota GET permitida da API, como /pedidos/123.'
+                        : 'Use uma rota GET permitida pelas regras, sem parâmetros, como /api/pedidos/123.']);
                 }
                 $credentials[$actor] = [
                     'email' => $data['email_'.$actor], 'password' => $data['password_'.$actor],
@@ -135,7 +153,7 @@ class ConsoleController extends Controller
 
         Target::create([
             'user_id' => $request->user()->id, 'name' => $data['name'],
-            'origin' => $origin, 'entry_path' => $entryPath,
+            'origin' => $origin, 'api_origin' => $apiOrigin, 'entry_path' => $entryPath,
             'verification_token' => Str::random(48), 'rules' => $rules, 'denied' => $denied,
             'credentials' => $credentials ?: null, 'local_port' => $localPort,
             'record_hint' => isset($data['record_hint']) ? trim($data['record_hint']) : null,

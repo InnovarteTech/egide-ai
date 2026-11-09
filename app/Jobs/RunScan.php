@@ -466,10 +466,18 @@ class RunScan implements ShouldQueue
             }
             $current = $page['path'] ?? '/';
             $host = parse_url($this->scan->scope['urls'][$actor] ?? $this->scan->scope['url'], PHP_URL_HOST);
+            $api = empty($this->scan->scope['api']) ? null : parse_url($this->scan->scope['api'], PHP_URL_HOST);
             foreach ($observation['network'] as $event) {
-                if ($event['allowed'] && $event['method'] === 'GET' && $event['status'] === 200 && $event['host'] === $host
-                    && ! Checks::isProbe($event['path']) && Scope::allows($this->scan->scope, 'GET', $event['path'])) {
-                    $paths[$event['path']] = true;
+                if (! $event['allowed'] || $event['method'] !== 'GET' || $event['status'] !== 200 || Checks::isProbe($event['path'])) {
+                    continue;
+                }
+                $route = match ($event['host']) {
+                    $host => $event['path'],
+                    $api => 'https://'.$api.$event['path'],
+                    default => null,
+                };
+                if ($route !== null && Scope::allows($this->scan->scope, 'GET', $route)) {
+                    $paths[$route] = true;
                 }
             }
             $candidates = array_keys($paths);
@@ -716,19 +724,21 @@ class RunScan implements ShouldQueue
             Storage::move($temporary, 'frames/'.$this->scanId.'.jpg');
         }
 
+        $front = parse_url($this->scan->scope['url'], PHP_URL_HOST);
         foreach ($data['network'] as $event) {
-            if ($event['host'] !== parse_url($this->scan->scope['url'], PHP_URL_HOST) && ! $event['allowed']) {
+            if (($event['host'] !== $front && ! $event['allowed']) || $event['method'] === 'OPTIONS') {
                 continue;
             }
+            $route = $event['host'] === $front ? $event['path'] : $event['host'].$event['path'];
             if ($event['allowed']) {
                 $this->allowed++;
                 $answered = ($event['status'] ?? 0) >= 100 && $event['status'] < 400 && ! Checks::isProbe($event['path']);
                 if ($answered) {
-                    $this->endpoints[$event['method'].' '.$event['path']] = true;
+                    $this->endpoints[$event['method'].' '.$route] = true;
                 }
                 foreach ($answered ? ($event['issues'] ?? []) : [] as $issue) {
                     if (is_string($issue) && preg_match('~^(?:hsts|csp|clickjacking|nosniff|version:[\w ./()-]{1,80}|cookie:[\w.-]{1,60}:[a-z,]{1,40})$~D', $issue)) {
-                        $this->issues[$issue][Checks::normalizePath($this->redact($event['path']))] = true;
+                        $this->issues[$issue][Checks::normalizePath($this->redact($route))] = true;
                     }
                 }
             } else {
@@ -736,7 +746,7 @@ class RunScan implements ShouldQueue
             }
             $this->scan->event(
                 $event['allowed'] ? 'network' : 'blocked',
-                $event['method'].' '.$this->redact($event['path']),
+                $event['method'].' '.$this->redact($route),
                 $event['allowed'] ? 'HTTP '.$event['status'] : $event['reason'],
                 ['status' => $event['status'], 'allowed' => $event['allowed'], 'actor' => strtoupper($data['actor'])],
             );
@@ -767,22 +777,31 @@ class RunScan implements ShouldQueue
 
     private function click(array $page, string $label): void
     {
-        $this->checkStop();
-        $control = collect($page['controls'] ?? [])->firstWhere('label', $label);
-        if (! $control) {
-            throw new RuntimeException("Controle ausente no Firefox: {$label}.");
-        }
+        $control = $this->awaitControl($page, 'label', $label, "Controle ausente no Firefox: {$label}.");
         $this->runner('/action', ['kind' => 'click', 'control' => $control['id']]);
     }
 
     private function fill(array $page, string $type, string $value): void
     {
-        $this->checkStop();
-        $control = collect($page['controls'] ?? [])->firstWhere('type', $type);
-        if (! $control) {
-            throw new RuntimeException("Campo de {$type} ausente no Firefox.");
-        }
+        $control = $this->awaitControl($page, 'type', $type, "Campo de {$type} ausente no Firefox.");
         $this->runner('/action', ['kind' => 'fill', 'control' => $control['id'], 'value' => $value]);
+    }
+
+    private function awaitControl(array $page, string $key, string $value, string $missing): array
+    {
+        for ($attempt = 0; $attempt < 4; $attempt++) {
+            $this->checkStop();
+            $control = collect($page['controls'] ?? [])->firstWhere($key, $value);
+            if ($control) {
+                return $control;
+            }
+            if ($attempt < 3) {
+                sleep(2);
+                $page = $this->observe(false)['page'];
+            }
+        }
+
+        throw new RuntimeException($missing);
     }
 
     private function checkStop(): void
