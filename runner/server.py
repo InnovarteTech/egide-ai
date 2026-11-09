@@ -268,7 +268,7 @@ def observation(with_frame=True):
                     continue
             SESSION["offset"] = source.tell()
     frame = None
-    if with_frame and (SESSION["lab"] or not any(control["type"] == "password" for control in snapshot.get("controls", []))):
+    if with_frame:
         windows = run("xdotool", "search", "--onlyvisible", "--class", "firefox",
                       capture_output=True, timeout=4).stdout.decode().splitlines()
         image = run("import", "-window", windows[-1], "-resize", "960x600", "-quality", "78",

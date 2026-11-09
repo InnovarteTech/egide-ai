@@ -89,10 +89,12 @@ function AssetDialog({ open, onClose, localTargets, target }) {
             </TabPanel>}
             {section === 'escopo' && <TabPanel name="ativo" id="escopo" className="form-stack">
                 <div className="fields-two">
-                    <Field label="Rotas permitidas" error={form.errors.rules} help="Uma por linha. Ex.: GET /faturas/*"><textarea rows="7" className="mono-input" value={form.data.rules} onChange={e => form.setData('rules', e.target.value)} data-autofocus /></Field>
+                    <Field label="Rotas permitidas" error={form.errors.rules} help={<>Uma por linha. Ex.: <code>GET /faturas/*</code>. <button type="button" className="text-link" onClick={() => form.setData('rules', '* /*')}>Liberar tudo</button></>}><textarea rows="7" className="mono-input" value={form.data.rules} onChange={e => form.setData('rules', e.target.value)} data-autofocus /></Field>
                     <Field label="Rotas bloqueadas" error={form.errors.denied} help="Uma por linha. Bloqueia o caminho e tudo abaixo."><textarea rows="7" className="mono-input" value={form.data.denied} onChange={e => form.setData('denied', e.target.value)} placeholder="/pagamentos" /></Field>
                 </div>
-                <p className="form-note"><LockKeyhole size={16} /><span>O proxy barra qualquer chamada fora dessas regras{split ? ', no app e na API' : ''}. Libere o POST do login, como <code>POST /auth/login</code>.</span></p>
+                {form.data.rules.trim() === '* /*'
+                    ? <p className="form-note form-note-warn"><TriangleAlert size={16} /><span>Tudo liberado{split ? ', no app e na API' : ''}, menos as rotas bloqueadas. Use só em ambiente de teste: o agente pode disparar escrita de verdade.</span></p>
+                    : <p className="form-note"><LockKeyhole size={16} /><span>O proxy barra qualquer chamada fora dessas regras{split ? ', no app e na API' : ''}. Libere o POST do login, como <code>POST /auth/login</code>. <code>* /*</code> libera todos os métodos.</span></p>}
             </TabPanel>}
             {section === 'contas' && <TabPanel name="ativo" id="contas" className="form-stack">
                 <p className="form-note"><Info size={16} /><span>A Égide entra com a conta B e tenta abrir um registro da conta A. Se o marcador de A aparecer, a falha está provada. Com uma conta só, ela apenas mapeia a navegação.</span></p>

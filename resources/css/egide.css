@@ -610,3 +610,5 @@ code.request{font-size:.78rem;overflow-wrap:anywhere;color:#2d2340}
 .asset-actions{display:flex;gap:4px;align-items:center;flex:none}
 .asset-head{align-items:center}
 @media(max-width:700px){.asset-actions{margin-left:auto}}
+.form-note-warn{background:#fdf0dc;color:#7a4a12}
+.form-note-warn svg{color:#b5700f}

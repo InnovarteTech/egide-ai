@@ -47,14 +47,14 @@ final class Scope
     {
         $rules = [];
         foreach (preg_split('/\R/', trim($input)) as $line) {
-            if (! preg_match('~^(GET|HEAD|POST)\s+(\S+)$~D', trim($line), $matches)) {
-                throw ValidationException::withMessages(['rules' => 'Use uma regra por linha, como GET /faturas/* ou POST /login.']);
+            if (! preg_match('~^(GET|HEAD|POST|PUT|PATCH|DELETE|\*)\s+(\S+)$~D', trim($line), $matches)) {
+                throw ValidationException::withMessages(['rules' => 'Use uma regra por linha, como GET /faturas/*, POST /login ou * /* para liberar tudo.']);
             }
 
             $prefix = str_ends_with($matches[2], '/*');
             $path = $prefix ? (substr($matches[2], 0, -2) ?: '/') : $matches[2];
-            if (! self::path($path) || ($prefix && $matches[1] === 'POST')) {
-                throw ValidationException::withMessages(['rules' => 'Use rotas exatas para POST. Informe os caminhos sem parâmetros.']);
+            if (! self::path($path) || ($prefix && ! in_array($matches[1], ['GET', 'HEAD', '*'], true))) {
+                throw ValidationException::withMessages(['rules' => 'Prefixo /* só em GET, HEAD ou *. Para POST, PUT, PATCH e DELETE use rotas exatas, sem parâmetros.']);
             }
             $rules[] = ['method' => $matches[1], 'path' => $path, 'prefix' => $prefix];
         }
@@ -92,7 +92,7 @@ final class Scope
         }
 
         foreach ($scope['rules'] as $rule) {
-            if ($rule['method'] === $method && ($path === $rule['path'] || ($rule['prefix']
+            if (($rule['method'] === $method || $rule['method'] === '*') && ($path === $rule['path'] || ($rule['prefix']
                 && ($rule['path'] === '/' || str_starts_with($path, $rule['path'].'/'))))) {
                 return true;
             }

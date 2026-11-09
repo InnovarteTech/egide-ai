@@ -153,4 +153,31 @@ class ApiOriginTest extends TestCase
         $this->assertDatabaseCount('targets', 0);
         $this->assertNull($scan->fresh()->target_id);
     }
+
+    public function test_wildcard_scope_allows_every_method_except_blocked(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user)->post('/ambientes', $this->environment([
+            'rules' => '* /*', 'denied' => '', 'path_a' => 'https://api.example.com/bookings/12', 'path_b' => '/bookings/34',
+        ]))->assertSessionHasNoErrors();
+        $scope = Scope::launch(Target::sole());
+        foreach (['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as $method) {
+            $this->assertTrue(Scope::allows($scope, $method, '/bookings/12'), $method);
+            $this->assertTrue(Scope::allows($scope, $method, 'https://api.example.com/anything/here'), $method.' api');
+        }
+
+        // blocked paths still win over the wildcard
+        $this->post('/ambientes', $this->environment([
+            'name' => 'Arena 2', 'origin' => 'https://b.example.com', 'api_origin' => '',
+            'rules' => '* /*', 'denied' => "/superadmin\n/platform", 'path_a' => '/bookings/12', 'path_b' => '/bookings/34',
+        ]))->assertSessionHasNoErrors();
+        $scope2 = Scope::launch(Target::where('origin', 'https://b.example.com')->sole());
+        $this->assertTrue(Scope::allows($scope2, 'DELETE', '/bookings/9'));
+        $this->assertFalse(Scope::allows($scope2, 'GET', '/superadmin'));
+        $this->assertFalse(Scope::allows($scope2, 'POST', '/platform/tenants'));
+
+        // prefix on an explicit write method is rejected
+        $this->post('/ambientes', $this->environment(['name' => 'X', 'origin' => 'https://c.example.com', 'api_origin' => '', 'rules' => 'DELETE /*']))
+            ->assertSessionHasErrors('rules');
+    }
 }

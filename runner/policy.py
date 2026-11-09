@@ -101,7 +101,7 @@ def correct_host(host, port):
 
 def allowed(method, path):
     return any(
-        method == rule["method"] and
+        (method == rule["method"] or rule["method"] == "*") and
         (path == rule["path"] or (
             rule["prefix"] and (
                 rule["path"] == "/" or path.startswith(rule["path"] + "/")

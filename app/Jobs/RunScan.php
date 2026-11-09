@@ -643,9 +643,9 @@ class RunScan implements ShouldQueue
     {
         $this->scan->update(['phase' => 'Exploração assistida por IA']);
         $history = [];
-        for ($step = 0; $step < 8; $step++) {
+        for ($step = 0; $step < 14; $step++) {
             $this->checkStop();
-            $observation = $this->observe(empty($this->scan->credentials['a']));
+            $observation = $this->observe();
             $page = $observation['page'];
             if (! empty($page['captcha'])) {
                 return $this->challenge();
@@ -683,7 +683,7 @@ class RunScan implements ShouldQueue
             }
         }
 
-        $this->observe(empty($this->scan->credentials['a']));
+        $this->observe();
         $this->scan->event('test', 'Mapa de navegação concluído', 'Os endpoints observados ficaram registrados no relatório desta sessão.');
 
         return 'mapped';
