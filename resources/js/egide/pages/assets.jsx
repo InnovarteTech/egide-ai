@@ -12,7 +12,7 @@ const assetSections = {
 };
 const steps = ['ambiente', 'escopo', 'contas'];
 const newMarker = () => 'EGIDE-' + Array.from(crypto.getRandomValues(new Uint8Array(8)), byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
-const blank = () => ({ name: '', origin: '', api_origin: '', entry_path: '/', rules: 'GET /', denied: '', email_a: '', password_a: '', email_b: '', password_b: '', marker_a: newMarker(), marker_b: newMarker(), origin_a: '', origin_b: '', path_a: '', path_b: '', record_hint: '', local_port: '' });
+const blank = () => ({ name: '', origin: '', api_origin: '', entry_path: '/', rules: 'GET /', denied: '', email_a: '', password_a: '', email_b: '', password_b: '', marker_a: newMarker(), marker_b: newMarker(), origin_a: '', origin_b: '', path_a: '', path_b: '', record_hint: '', local_port: '', write_test: false });
 function AssetDialog({ open, onClose, localTargets }) {
     const [section, setSection] = useState('ambiente');
     const [actor, setActor] = useState('a');
@@ -25,7 +25,7 @@ function AssetDialog({ open, onClose, localTargets }) {
     const submit = event => {
         event.preventDefault();
         if (step < steps.length - 1) { setSection(steps[step + 1]); return; }
-        form.transform(data => ({ ...data, api_origin: split ? data.api_origin : '', marker_a: data.email_b ? data.marker_a : '', marker_b: data.email_b ? data.marker_b : '' }));
+        form.transform(data => ({ ...data, api_origin: split ? data.api_origin : '', marker_a: data.email_b ? data.marker_a : '', marker_b: data.email_b ? data.marker_b : '', write_test: data.email_b && data.path_a ? data.write_test : false }));
         form.post('/ambientes', {
             preserveScroll: true, preserveState: true,
             onSuccess: () => { form.setData(blank()); form.clearErrors(); setSplit(false); setSection('ambiente'); onClose(); },
@@ -102,6 +102,12 @@ function AssetDialog({ open, onClose, localTargets }) {
                         <Field label="Rota do registro (opcional)" error={form.errors['path_' + actor]} help={split ? 'Rota na API, como /reservas/12.' : 'Se a tela não carrega o registro sozinha.'}>{input('path_' + actor, { placeholder: split ? '/reservas/12' : '/api/pedidos/123', className: 'mono-input' })}</Field>
                     </div>
                 </div>
+                {form.data.email_b && form.data.path_a && <label className="switch-row">
+                    <input type="checkbox" role="switch" checked={form.data.write_test} onChange={e => form.setData('write_test', e.target.checked)} />
+                    <span className="switch" aria-hidden="true" />
+                    <span><strong>Testar escrita entre contas</strong><small>A conta B tenta alterar o registro da conta A. A Égide usa só esse registro, método reversível (PATCH) e restaura o valor no fim.</small></span>
+                </label>}
+                {form.errors.write_test && <p role="alert" className="field-error"><TriangleAlert size={13} />{form.errors.write_test}</p>}
             </TabPanel>}
         </form>
     </Dialog>;
@@ -155,6 +161,7 @@ function AssetRow({ target }) {
             <div className="asset-main"><h3>{target.name}</h3><p className="mono">{target.origin}{target.api_origin && <span className="asset-api"> · API {target.api_origin.replace('https://', '')}</span>}</p></div>
             <div className="asset-tags">
                 {target.local_port && <Badge tone="violet">{'Local · ' + target.local_port}</Badge>}
+                {target.write_test && <Badge tone="amber">Escrita</Badge>}
                 <Badge tone={target.verified_at ? 'green' : 'neutral'}>{target.verified_at ? 'Verificado' : 'Pendente'}</Badge>
             </div>
         </div>

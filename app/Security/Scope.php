@@ -138,10 +138,19 @@ final class Scope
             }
         }
 
+        $write = null;
+        $writePath = $accounts['a']['path'] ?? null;
+        if ($target->write_test && is_string($writePath)) {
+            $parts = str_starts_with($writePath, 'https://')
+                ? ['host' => parse_url($writePath, PHP_URL_HOST), 'path' => parse_url($writePath, PHP_URL_PATH)]
+                : ['host' => parse_url($accounts['a']['origin'] ?? $target->origin, PHP_URL_HOST), 'path' => $writePath];
+            $write = ['method' => 'PATCH', 'host' => $parts['host'], 'path' => $parts['path'], 'max' => 4];
+        }
+
         return [
             'url' => ($urls['a'] ?? $target->origin.$target->entry_path), 'lab' => false, 'api' => $target->api_origin ?: null,
             'urls' => $urls, 'rules' => $target->rules, 'denied' => $target->denied,
-            'local_port' => $target->local_port ?: null,
+            'local_port' => $target->local_port ?: null, 'write' => $write,
         ];
     }
 

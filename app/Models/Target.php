@@ -18,6 +18,6 @@ class Target extends Model
 
     protected function casts(): array
     {
-        return ['verified_at' => 'datetime', 'next_run_at' => 'datetime', 'rules' => 'array', 'denied' => 'array', 'credentials' => 'encrypted:array'];
+        return ['verified_at' => 'datetime', 'next_run_at' => 'datetime', 'rules' => 'array', 'denied' => 'array', 'credentials' => 'encrypted:array', 'write_test' => 'boolean'];
     }
 }

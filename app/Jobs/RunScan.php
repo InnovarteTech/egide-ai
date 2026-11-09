@@ -211,6 +211,7 @@ class RunScan implements ShouldQueue
             'reference' => 'OWASP API1:2023 · CWE-639',
         ];
 
+        $result = null;
         if ($cross['status'] === 200 && empty($cross['blocked']) && ($cross['marker'] ?? null) === $otherRecord['marker']) {
             $this->scan->findings()->create([
                 'title' => 'Exportação expõe fatura de outra empresa', 'severity' => 'high',
@@ -218,16 +219,19 @@ class RunScan implements ShouldQueue
                 'remediation' => 'Valide no servidor se a fatura pertence à empresa da sessão antes de gerar o arquivo.',
             ]);
             $this->scan->event('finding', 'Acesso cruzado confirmado', "A sessão de {$evidence['actor']} recebeu o marcador de uma fatura de {$evidence['owner']}.", $evidence);
-
-            return 'exposure';
-        }
-        if (in_array($cross['status'], [403, 404], true) && empty($cross['blocked']) && empty($cross['marker'])) {
+            $result = 'exposure';
+        } elseif (in_array($cross['status'], [403, 404], true) && empty($cross['blocked']) && empty($cross['marker'])) {
             $this->scan->event('verified', 'Isolamento confirmado no reteste', 'A aplicação negou a consulta cruzada. As duas exportações legítimas responderam com sucesso.', $evidence);
-
-            return 'protected';
+            $result = 'protected';
+        }
+        if ($result === null) {
+            throw new RuntimeException('A resposta não permite concluir o teste de isolamento.');
+        }
+        if (! empty($this->scan->scope['write'])) {
+            $this->writeTest($planner, $actor, $owner, $otherRecord['path']);
         }
 
-        throw new RuntimeException('A resposta não permite concluir o teste de isolamento.');
+        return $result;
     }
 
     private function enrollAndExplore(string $actor, array $page, Planner $planner): array
@@ -426,6 +430,7 @@ class RunScan implements ShouldQueue
             'cross_status' => $cross['status'], 'marker_verified' => $matched,
             'reference' => 'OWASP API1:2023 · CWE-639',
         ];
+        $result = null;
         if ($cross['status'] === 200 && empty($cross['blocked']) && $matched) {
             $this->scan->findings()->create([
                 'title' => 'Conta de teste acessa registro de outra conta', 'severity' => 'high',
@@ -433,16 +438,16 @@ class RunScan implements ShouldQueue
                 'remediation' => 'Verifique no servidor se a identidade autenticada tem permissão para consultar o objeto solicitado.',
             ]);
             $this->scan->event('finding', 'Acesso cruzado confirmado', 'A conta B recebeu o marcador sintético do registro da conta A.', $evidence);
-
-            return 'exposure';
-        }
-        if (in_array($cross['status'], [403, 404], true) && empty($cross['blocked']) && ! $matched) {
+            $result = 'exposure';
+        } elseif (in_array($cross['status'], [403, 404], true) && empty($cross['blocked']) && ! $matched) {
             $this->scan->event('verified', 'Isolamento confirmado nesta rota', 'As duas contas acessaram seus próprios registros. A aplicação negou o acesso cruzado.', $evidence);
-
-            return 'protected';
+            $result = 'protected';
+        }
+        if ($result !== null && ! empty($this->scan->scope['write'])) {
+            $this->writeTest($planner, 'b', 'a', $paths['a']);
         }
 
-        return $this->inconclusive('A resposta cruzada não permitiu concluir se o registro ficou exposto.', $evidence);
+        return $result ?? $this->inconclusive('A resposta cruzada não permitiu concluir se o registro ficou exposto.', $evidence);
     }
 
     private function discoverExternal(Planner $planner, array $observation, string $actor, array $markers): ?string
@@ -528,6 +533,89 @@ class RunScan implements ShouldQueue
         ]);
 
         return true;
+    }
+
+    private function writeTest(Planner $planner, string $writer, string $owner, string $recordPath): void
+    {
+        $this->checkStop();
+        $this->scan->update(['phase' => 'Teste de escrita entre contas']);
+        $this->runner('/action', ['kind' => 'switch', 'actor' => $owner]);
+        $this->observe();
+        $before = $this->runner('/fields', ['path' => $recordPath]);
+        $blocked = '~(^id$|^cod|^num|_id$|identif|email|mail|cpf|cnpj|phone|telefone|senha|password|token|secret|hash|chave|key|user|login|owner|tenant|conta|valor|preco|price|amount|montante|saldo|total|quantidade|qtd|estoque|status|situacao|numero|number|codigo|slug|referencia|reference|data|date|hora|documento|^doc|nome|name|razao|address|endereco|cep|zip)~i';
+        $fields = collect($before['fields'] ?? [])->filter(fn ($field) => is_string($field['key'] ?? null)
+            && is_string($field['value'] ?? null) && $field['value'] !== '' && empty($field['truncated'])
+            && ! preg_match($blocked, $field['key']));
+        if (($before['status'] ?? 0) !== 200 || $fields->isEmpty()) {
+            $this->scan->event('test', 'Escrita entre contas não testável', 'Não há campo de texto seguro e reversível neste registro para o teste de escrita.');
+
+            return;
+        }
+
+        $choices = $fields->values()->map(fn ($field) => [
+            'kind' => 'field', 'key' => $field['key'], 'label' => 'Testar escrita no campo "'.$field['key'].'"',
+        ])->all();
+        $choices[] = ['kind' => 'skip', 'key' => null, 'label' => 'Nenhum campo seguro para alterar'];
+        $labField = $fields->firstWhere('key', 'nota') ? ['kind' => 'field', 'key' => 'nota'] : ['kind' => 'skip', 'key' => null];
+        $choice = $this->scan->provider === 'lab' ? $labField : $this->agentDecision(
+            $planner,
+            'O registro pertence à conta '.strtoupper($owner).'. Escolha UM campo de texto cujo valor possa ser trocado por um marcador e depois restaurado, para testar se outra conta consegue alterá-lo. Evite identificadores, e-mails e dados pessoais. Se nenhum for seguro, escolha pular.',
+            ['campos' => $fields->map(fn ($field) => $field['key'])->values()->all()],
+            $choices,
+        );
+        if (($choice['kind'] ?? '') !== 'field' || ! is_string($choice['key'] ?? null)) {
+            $this->scan->event('test', 'Escrita entre contas não testável', 'Nenhum campo seguro e reversível foi escolhido para o teste de escrita.');
+
+            return;
+        }
+
+        $field = $choice['key'];
+        $original = (string) ($fields->firstWhere('key', $field)['value'] ?? '');
+        $sentinel = 'EGIDE-W-'.strtoupper(bin2hex(random_bytes(6)));
+
+        $this->runner('/action', ['kind' => 'switch', 'actor' => $writer]);
+        $this->observe();
+        $this->scan->event('test', 'Tentando escrita cruzada', 'A conta '.strtoupper($writer).' tenta alterar o campo "'.$field.'" do registro da conta '.strtoupper($owner).'.');
+        $write = $this->runner('/write', ['path' => $recordPath, 'field' => $field, 'value' => $sentinel]);
+
+        $this->runner('/action', ['kind' => 'switch', 'actor' => $owner]);
+        $this->observe();
+        $after = $this->runner('/fields', ['path' => $recordPath]);
+        $confirmed = empty($write['blocked'])
+            && (collect($after['fields'] ?? [])->firstWhere('key', $field)['value'] ?? null) === $sentinel;
+
+        $evidence = [
+            'method' => $this->scan->scope['write']['method'] ?? 'PATCH', 'path' => $recordPath, 'field' => $field,
+            'actor' => 'Conta '.strtoupper($writer), 'owner' => 'Conta '.strtoupper($owner),
+            'write_status' => $write['status'] ?? null, 'marker_written' => $confirmed,
+            'reference' => 'OWASP API1:2023 · CWE-639',
+        ];
+
+        if (! $confirmed) {
+            $this->scan->event('verified', 'Escrita cruzada bloqueada', 'A aplicação impediu a conta '.strtoupper($writer).' de alterar o registro da conta '.strtoupper($owner).'.', $evidence);
+
+            return;
+        }
+
+        $restored = false;
+        try {
+            $this->runner('/write', ['path' => $recordPath, 'field' => $field, 'value' => $original]);
+            $verify = $this->runner('/fields', ['path' => $recordPath]);
+            $restored = (collect($verify['fields'] ?? [])->firstWhere('key', $field)['value'] ?? null) === $original;
+        } catch (Throwable) {
+            $restored = false;
+        }
+        $evidence['restored'] = $restored;
+
+        $this->scan->findings()->create([
+            'title' => 'Conta de teste altera registro de outra conta', 'severity' => 'critical',
+            'category' => 'BOLA de escrita · autorização por objeto', 'evidence' => $evidence,
+            'remediation' => 'Exija no servidor que a identidade autenticada seja dona do objeto antes de qualquer alteração (PATCH, PUT ou DELETE), não só na leitura.',
+        ]);
+        $this->scan->event('finding', 'Escrita cruzada confirmada',
+            'A conta '.strtoupper($writer).' alterou um campo do registro da conta '.strtoupper($owner).'.'
+            .($restored ? ' O valor original foi restaurado.' : ' Atenção: não foi possível restaurar o valor original.'),
+            $evidence);
     }
 
     private function inconclusive(string $detail, ?array $evidence = null): string

@@ -23,7 +23,7 @@ def reset():
     confirmations.clear()
     invoices.clear()
     for actor in ("a", "b"):
-        invoices[actor] = (secrets.token_hex(4), "EGIDE-" + secrets.token_hex(6).upper())
+        invoices[actor] = {"id": secrets.token_hex(4), "marcador": "EGIDE-" + secrets.token_hex(6).upper(), "nota": "Sem observacoes"}
 
 
 def page(content):
@@ -95,14 +95,18 @@ class Lab(BaseHTTPRequestHandler):
         export = re.fullmatch(r"/servicos/(vulneravel|corrigido)/extratos/([a-f0-9]{8})", path)
         if export:
             variant, invoice = export.groups()
-            owner = next((actor for actor, item in invoices.items() if item[0] == invoice), None)
+            owner = next((actor for actor, item in invoices.items() if item["id"] == invoice), None)
             if not self.actor() or not owner or (variant == "corrigido" and self.actor() != owner):
                 self.reply(json.dumps({"error": "Acesso negado"}), 403, "application/json")
                 return
+            record = invoices[owner]
+            if "application/json" in self.headers.get("Accept", ""):
+                self.reply(json.dumps({"fatura": invoice, "empresa": owner.upper(), "marcador": record["marcador"], "nota": record["nota"]}), kind="application/json")
+                return
             result = io.StringIO()
             writer = csv.writer(result)
-            writer.writerow(("fatura", "empresa", "marcador"))
-            writer.writerow((invoice, owner.upper(), invoices[owner][1]))
+            writer.writerow(("fatura", "empresa", "marcador", "nota"))
+            writer.writerow((invoice, owner.upper(), record["marcador"], record["nota"]))
             self.reply(result.getvalue(), kind="text/csv; charset=utf-8")
             return
         match = re.fullmatch(r"/(vulneravel|corrigido)(?:/(entrar|cadastro|painel|faturas|ajuda))?/?", path)
@@ -143,7 +147,7 @@ class Lab(BaseHTTPRequestHandler):
 <nav><a href="/{variant}/painel">Voltar ao painel</a><a href="/{variant}/faturas">Ver faturas</a></nav>
 """))
             return
-        invoice, marker = invoices[actor]
+        invoice, marker = invoices[actor]["id"], invoices[actor]["marcador"]
         self.reply(page(f"""
 <small>EMPRESA {actor.upper()}</small><h1>Faturas</h1>
 <p>Fatura {invoice} · Referência {marker}</p>
@@ -157,6 +161,27 @@ document.getElementById("exportar").onclick = async () => {{
 }};
 </script>
 """))
+
+    def do_PATCH(self):
+        match = re.fullmatch(r"/(vulneravel|corrigido)/servicos-indisponivel", self.path)
+        export = re.fullmatch(r"/servicos/(vulneravel|corrigido)/extratos/([a-f0-9]{8})", urlsplit(self.path).path)
+        if not export:
+            self.reply(json.dumps({"error": "Rota indisponivel"}), 404, "application/json")
+            return
+        variant, invoice = export.groups()
+        actor = self.actor()
+        owner = next((a for a, item in invoices.items() if item["id"] == invoice), None)
+        if not actor or not owner or (variant == "corrigido" and actor != owner):
+            self.reply(json.dumps({"error": "Acesso negado"}), 403, "application/json")
+            return
+        try:
+            body = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length", 0)), 2048)) or b"{}")
+        except ValueError:
+            self.reply(json.dumps({"error": "JSON invalido"}), 400, "application/json")
+            return
+        if "nota" in body and isinstance(body["nota"], str):
+            invoices[owner]["nota"] = body["nota"][:200]
+        self.reply(json.dumps({"fatura": invoice, "empresa": owner.upper(), "nota": invoices[owner]["nota"]}), kind="application/json")
 
     def do_POST(self):
         match = re.fullmatch(r"/(vulneravel|corrigido)/(cadastro|entrar)", self.path)

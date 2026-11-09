@@ -14,6 +14,8 @@ with open(os.environ["EGIDE_POLICY"]) as source:
 
 limit = 0
 preflights = 0
+writes = 0
+write = scope.get("write")
 events = os.environ["EGIDE_EVENTS"]
 hosts = set(scope.get("hosts") or [scope["host"]])
 local_port = scope.get("local_port")
@@ -109,6 +111,12 @@ def allowed(method, path):
     )
 
 
+def write_match(method, host, path):
+    if not write or method != write["method"] or (host or "").lower() != (write["host"] or "").lower():
+        return False
+    return path == write["path"] or (write.get("prefix") and path.startswith(write["path"] + "/"))
+
+
 def http_connect(flow):
     if not correct_host(flow.request.host, flow.request.port):
         reject(flow, "Destino fora da autorização")
@@ -122,7 +130,7 @@ def request(flow):
 
 
 def check(flow):
-    global limit, preflights
+    global limit, preflights, writes
     req = flow.request
     flow.metadata["scheme"] = req.scheme
     if req.stream:
@@ -156,18 +164,26 @@ def check(flow):
         if preflights >= scope["budget"]:
             reject(flow, "Limite de requisições atingido")
             return
-        if not allowed(req.headers["access-control-request-method"].strip().upper(), decoded):
+        requested = req.headers["access-control-request-method"].strip().upper()
+        if not allowed(requested, decoded) and not write_match(requested, req.pretty_host, decoded):
             reject(flow, "Método ou rota sem permissão")
             return
         preflights += 1
     else:
-        if limit >= scope["budget"]:
-            reject(flow, "Limite de requisições atingido")
-            return
-        if not allowed(req.method, decoded):
-            reject(flow, "Método ou rota sem permissão")
-            return
-        limit += 1
+        is_write = write_match(req.method, req.pretty_host, decoded)
+        if is_write:
+            if writes >= write["max"]:
+                reject(flow, "Limite de escritas de teste atingido")
+                return
+            writes += 1
+        else:
+            if limit >= scope["budget"]:
+                reject(flow, "Limite de requisições atingido")
+                return
+            if not allowed(req.method, decoded):
+                reject(flow, "Método ou rota sem permissão")
+                return
+            limit += 1
     req.headers['connection'] = 'close'
     actor = current_actor()
     probe = req.headers.pop("x-egide-probe", None) == "1"

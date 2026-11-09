@@ -596,3 +596,4 @@ code.request{font-size:.78rem;overflow-wrap:anywhere;color:#2d2340}
 .verify-urls{list-style:none;margin:0 0 12px;padding:0;display:grid;gap:4px;font-size:.78rem;color:#4b4160;overflow-wrap:anywhere}
 @media(max-width:700px){.marker-row{grid-template-columns:1fr;gap:0}.marker-actions{padding-top:0;margin:-6px 0 14px}}
 .field>.segmented,.form-stack>.segmented{justify-self:start}
+.badge.amber{color:#9a5b12;background:#fdf0dc}

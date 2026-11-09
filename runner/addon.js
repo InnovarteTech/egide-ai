@@ -40,6 +40,27 @@ async function collect(command) {
     await browser.tabs.update(tab.id, {url:command.url});
     return {result:{ok:true}};
   }
+  if (command?.kind === 'fields' && command.url) {
+    if (new URL(tab.url).origin !== command.origin) return {result:{status:0, fields:[]}};
+    const response = await fetch(command.url, {credentials:'include', cache:'no-store', redirect:'manual', headers:{'Accept':'application/json','X-Egide-Probe':'1'}, signal:AbortSignal.timeout(5500)});
+    let fields = [];
+    try {
+      const data = JSON.parse(await response.text());
+      const record = data && typeof data === 'object' && !Array.isArray(data) ? data : {};
+      fields = Object.entries(record)
+        .filter(([, value]) => typeof value === 'string')
+        .slice(0, 40)
+        .map(([key, value]) => ({key, value: value.slice(0, 200), truncated: value.length > 200}));
+    } catch { fields = []; }
+    return {result:{status: response.status, fields, blocked: response.headers.get('x-egide-blocked') === '1'}};
+  }
+  if (command?.kind === 'write' && command.url) {
+    if (new URL(tab.url).origin !== command.origin) return {result:{status:0}};
+    const response = await fetch(command.url, {method: command.method, credentials:'include', cache:'no-store', redirect:'manual',
+      headers:{'Content-Type':'application/json','Accept':'application/json','X-Egide-Probe':'1'},
+      body: JSON.stringify({[command.field]: command.value}), signal:AbortSignal.timeout(5500)});
+    return {result:{status: response.status, blocked: response.headers.get('x-egide-blocked') === '1'}};
+  }
   if (command?.kind === 'probe' && command.url) {
     if (new URL(tab.url).origin !== command.origin) return {result:{status:0, matches:[]}};
     const response = await fetch(command.url, {credentials:'include', cache:'no-store', redirect:'manual', headers:{'X-Egide-Probe':'1'}, signal:AbortSignal.timeout(5500)});

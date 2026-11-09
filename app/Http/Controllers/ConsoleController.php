@@ -79,6 +79,7 @@ class ConsoleController extends Controller
             'local_port' => 'nullable|integer|min:1|max:65535',
             'record_hint' => 'nullable|string|max:120',
             'path_a' => 'nullable|string|max:250', 'path_b' => 'nullable|string|max:250',
+            'write_test' => 'sometimes|boolean',
         ]);
         $origin = Scope::origin($data['origin']);
         $localPort = $data['local_port'] ?? null;
@@ -151,8 +152,13 @@ class ConsoleController extends Controller
             throw ValidationException::withMessages(['path_b' => 'Cada conta precisa de um registro com rota própria.']);
         }
 
+        $writeTest = ! empty($data['write_test']);
+        if ($writeTest && (empty($credentials['b']) || empty($credentials['a']['path']))) {
+            throw ValidationException::withMessages(['path_a' => 'Para testar escrita, informe duas contas e a rota do registro da conta A.']);
+        }
+
         Target::create([
-            'user_id' => $request->user()->id, 'name' => $data['name'],
+            'user_id' => $request->user()->id, 'name' => $data['name'], 'write_test' => $writeTest,
             'origin' => $origin, 'api_origin' => $apiOrigin, 'entry_path' => $entryPath,
             'verification_token' => Str::random(48), 'rules' => $rules, 'denied' => $denied,
             'credentials' => $credentials ?: null, 'local_port' => $localPort,
@@ -289,6 +295,7 @@ class ConsoleController extends Controller
                 ['method' => 'POST', 'path' => "/{$variant}/entrar", 'prefix' => false],
             ],
             'denied' => ['/administracao', '/pagamentos'],
+            'write' => ['method' => 'PATCH', 'host' => 'lab.egide.test', 'path' => "/servicos/{$variant}/extratos", 'prefix' => true, 'max' => 4],
         ];
 
         $model = $engine['model'] ?? null;

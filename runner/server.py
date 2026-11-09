@@ -185,14 +185,27 @@ def start(data):
     folder.chmod(0o755)
     event_path = folder / "events.ndjson"
     policy_path = folder / "scope.json"
+    write = data.get("write")
+    if write is not None:
+        if (not isinstance(write, dict) or write.get("method") not in ("PATCH", "PUT")
+                or (write.get("host") or "").lower() not in hosts
+                or not isinstance(write.get("path"), str) or not write["path"].startswith("/")
+                or "//" in write["path"] or ".." in write["path"]
+                or not isinstance(write.get("max"), int) or not 0 < write["max"] <= 8):
+            raise ValueError("Rota de escrita inválida")
+        port = url.port or (80 if url.scheme == "http" else 443)
+        suffix = "" if port in (80, 443) else f":{port}"
+        write = {"method": write["method"], "host": write["host"].lower(), "path": write["path"],
+                 "prefix": bool(write.get("prefix")), "max": int(write["max"]),
+                 "base": f"{url.scheme}://{write['host'].lower()}{suffix}"}
     policy_path.write_text(json.dumps({
         "host": url.hostname, "hosts": hosts, "scheme": url.scheme, "port": url.port or 443, "lab": is_lab,
         "rules": data["rules"], "denied": data["denied"], "budget": int(data["budget"]),
-        "local_port": local_port,
+        "local_port": local_port, "write": write,
     }))
     SESSION = {
         "id": data["id"], "dir": folder, "url": data["url"], "urls": dict(bases), "bases": bases, "actor": "a",
-        "api": api.hostname if api else None,
+        "api": api.hostname if api else None, "write": write,
         "origin": f"{url.scheme}://{url.netloc}",
         "offset": 0, "lab": is_lab, "last": time.monotonic(), "events": event_path,
     }
@@ -300,6 +313,39 @@ def act(data):
     return {"ok": True}
 
 
+def write_target(path):
+    rule = SESSION.get("write")
+    if not rule:
+        raise ValueError("Escrita de teste não habilitada")
+    if path.startswith("https://") or path.startswith("http://"):
+        path = urllib.parse.urlsplit(path).path
+    if (not path.startswith("/") or "//" in path or len(path) > 450
+            or not re.fullmatch(r"/(?:[a-zA-Z0-9._@-]+/)*[a-zA-Z0-9._@-]*", path)
+            or any(part in (".", "..") for part in path.split("/"))):
+        raise ValueError("Rota fora da escrita autorizada")
+    if not (path == rule["path"] or (rule.get("prefix") and path.startswith(rule["path"] + "/"))):
+        raise ValueError("Rota fora da escrita autorizada")
+    return rule["base"] + path
+
+
+def fields(data):
+    return bridge_call({"kind": "fields", "url": write_target(data["path"]), "origin": actor_origin()})
+
+
+def write(data):
+    if not SESSION.get("write"):
+        raise ValueError("Escrita de teste não habilitada")
+    field = data.get("field")
+    if not isinstance(field, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,60}", field):
+        raise ValueError("Campo de escrita inválido")
+    value = data.get("value")
+    if not isinstance(value, str) or len(value) > 200:
+        raise ValueError("Valor de escrita inválido")
+    return bridge_call({"kind": "write", "url": write_target(data["path"]),
+                        "method": SESSION["write"]["method"], "field": field, "value": value,
+                        "origin": actor_origin()})
+
+
 def probe(data):
     path = data["path"]
     url = None
@@ -339,19 +385,23 @@ def mailbox(email):
     if not SESSION["lab"] or not re.fullmatch(r"[ab]-[0-9a-f-]{8,40}@egide\.test", email):
         raise ValueError("Caixa postal fora do laboratório")
     params = urllib.parse.urlencode({"query": "to:" + email})
-    for _ in range(40):
-        with urllib.request.urlopen("http://mailpit:8025/api/v1/search?" + params, timeout=4) as response:
-            messages = json.load(response).get("messages", [])
-        if messages:
-            with urllib.request.urlopen(
-                "http://mailpit:8025/api/v1/message/" + urllib.parse.quote(messages[0]["ID"], safe=""),
-                timeout=4,
-            ) as response:
-                content = json.load(response).get("Text", "")
-            match = re.search(r"/(?:vulneravel|corrigido)/confirmar/[a-f0-9]{32}", content)
-            if match:
-                return {"path": match.group()}
-        time.sleep(.35)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen("http://mailpit:8025/api/v1/search?" + params, timeout=4) as response:
+                messages = json.load(response).get("messages", [])
+            if messages:
+                with urllib.request.urlopen(
+                    "http://mailpit:8025/api/v1/message/" + urllib.parse.quote(messages[0]["ID"], safe=""),
+                    timeout=4,
+                ) as response:
+                    content = json.load(response).get("Text", "")
+                match = re.search(r"/(?:vulneravel|corrigido)/confirmar/[a-f0-9]{32}", content)
+                if match:
+                    return {"path": match.group()}
+        except (OSError, ValueError):
+            pass
+        time.sleep(.4)
     raise ValueError("A confirmação por e-mail não chegou")
 
 
@@ -411,6 +461,10 @@ class Handler(BaseHTTPRequestHandler):
                         result = act(data)
                     elif self.path == "/probe":
                         result = probe(data)
+                    elif self.path == "/fields":
+                        result = fields(data)
+                    elif self.path == "/write":
+                        result = write(data)
                     elif self.path == "/mail":
                         result = mailbox(data["email"])
                     elif self.path == "/stop":

@@ -69,4 +69,22 @@ class ApiOriginTest extends TestCase
         $this->post('/ambientes', $this->environment(['api_origin' => '', 'path_a' => '/bookings/12']))->assertSessionHasNoErrors();
         $this->assertNull(Target::sole()->api_origin);
     }
+
+    public function test_write_test_requires_two_accounts_and_a_record_and_scopes_the_write(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user)->post('/ambientes', $this->environment(['write_test' => '1', 'path_a' => '', 'path_b' => '']))
+            ->assertSessionHasErrors('path_a');
+        $this->assertDatabaseCount('targets', 0);
+
+        $this->post('/ambientes', $this->environment(['write_test' => '1']))->assertSessionHasNoErrors();
+        $target = Target::sole();
+        $this->assertTrue($target->write_test);
+
+        $scope = Scope::launch($target);
+        $this->assertSame(['method' => 'PATCH', 'host' => 'api.example.com', 'path' => '/bookings/12', 'max' => 4], $scope['write']);
+
+        $target->update(['write_test' => false]);
+        $this->assertNull(Scope::launch($target)['write']);
+    }
 }
