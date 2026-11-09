@@ -794,7 +794,7 @@ class RunScan implements ShouldQueue
 
     private function runner(string $path, array $data = []): array
     {
-        $response = Http::connectTimeout(4)->timeout(32)->withoutRedirecting()
+        $response = Http::connectTimeout(4)->timeout(70)->withoutRedirecting()
             ->withToken(config('egide.runner_token') ?: 'unconfigured')
             ->post(rtrim($this->runnerUrl ?? config('egide.runner_url'), '/').$path, ['id' => $this->scanId, ...$data]);
         if (! $response->successful()) {

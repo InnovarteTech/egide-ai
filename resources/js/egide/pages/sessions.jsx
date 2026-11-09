@@ -24,7 +24,7 @@ export function Sessions({ scans, filter = 'todas', counts = {} }) {
             <TabPanel name="sessoes" id={filter}>
                 {!scans.data.length ? <Empty icon={CirclePlay} title={empty[0]} action={filter === 'todas' && <Link href="/sessoes/nova" className="text-link">Configurar uma sessão <ArrowRight size={16} /></Link>}>{empty[1]}</Empty>
                     : <div className="table-scroll"><table className="data-table">
-                        <thead><tr><th>Sessão</th><th>Ativo</th><th className="hide-sm">Início</th><th>Resultado</th><th className="hide-sm num">Achados</th><th className="hide-sm"><span className="sr-only">Abrir</span></th></tr></thead>
+                        <thead><tr><th>Sessão</th><th>Ambiente</th><th className="hide-sm">Início</th><th>Resultado</th><th className="hide-sm num">Achados</th><th className="hide-sm"><span className="sr-only">Abrir</span></th></tr></thead>
                         <tbody>{scans.data.map(scan => <tr key={scan.id}>
                             <td><Link href={'/sessoes/' + scan.id} className="mono scan-id">{scanLabel(scan)}</Link></td>
                             <td><div className="cell-stack"><span>{scan.name}</span><small className="mono hide-sm">{hostOf(scan.scope?.url)}</small></div></td>
@@ -104,7 +104,7 @@ export function Session(initial) {
                     {frame ? <img alt="Captura da sessão no Firefox" src={base + '/imagem?v=' + encodeURIComponent(events.at(-1)?.id ?? scan.updated_at)} />
                         : <div className="browser-placeholder"><Monitor size={36} strokeWidth={1.4} /><strong>{active ? 'Aguardando o Firefox' : 'Captura indisponível'}</strong><span>A imagem aparece quando o executor carrega a página.</span></div>}
                 </div>
-                <div className="browser-foot"><LockKeyhole size={15} /> {host}<span>{scan.mode === 'external' ? 'Ativo verificado' : 'Laboratório'}</span></div>
+                <div className="browser-foot"><LockKeyhole size={15} /> {host}<span>{scan.mode === 'external' ? 'Ambiente verificado' : 'Laboratório'}</span></div>
             </section>
             <section className="panel timeline-panel">
                 <div className="panel-header"><h2>Atividade</h2>{active && <span className="live-dot">Atualizando</span>}</div>

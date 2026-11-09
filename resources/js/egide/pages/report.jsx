@@ -30,7 +30,7 @@ export function Report({ scan, events, findings, target, engine, generatedAt }) 
                 <div><h1>{scan.name}</h1><p>Relatório de avaliação autorizada · <span className="mono">{scanLabel(scan)} · {host}</span></p></div>
             </header>
             <dl className="report-meta">
-                <div><dt>Ativo</dt><dd>{target ? target.name + ' · ' + target.origin : 'Laboratório controlado'}</dd></div>
+                <div><dt>Ambiente</dt><dd>{target ? target.name + ' · ' + target.origin : 'Laboratório controlado'}</dd></div>
                 <div><dt>Início</dt><dd>{formatDate(scan.started_at)}</dd></div>
                 <div><dt>Término</dt><dd>{formatDate(scan.finished_at)}</dd></div>
                 <div><dt>Motor de decisão</dt><dd>{engine}{scan.model ? ' · ' + scan.model : ''}</dd></div>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useForm } from '@inertiajs/react';
-import { ArrowDownToLine, Check, ChevronRight, KeyRound, LayoutGrid, Plus, ScanLine, TriangleAlert, X } from 'lucide-react';
+import { ArrowDownToLine, Check, ChevronRight, KeyRound, LayoutGrid, Plus, ScanLine, X } from 'lucide-react';
 import { formatDate } from '../format';
 import { Badge, useTab, Tabs, TabPanel, Dialog, ConfirmAction, CopyBox, Empty, Field } from '../ui';
 import { Layout, Heading } from '../layout';
@@ -42,42 +42,32 @@ function Integrations({ hasWebhook, tokens, issuedToken, apiBase }) {
         </Dialog>
     </div>;
 }
-export function Settings({ settings, providers, local, hasKey, hasWebhook, tokens = [], issuedToken, apiBase }) {
+export function Settings({ settings, engine, usage, hasWebhook, tokens = [], issuedToken, apiBase }) {
     const [tab, setTab] = useTab('aba', issuedToken ? 'integracoes' : 'workspace', ['workspace', 'motor', 'integracoes']);
-    const form = useForm({ ...settings, model: settings.model ?? '', api_key: '' });
-    const save = event => { event.preventDefault(); form.put('/configuracoes', { preserveScroll: true, preserveState: true, onSuccess: () => form.reset('api_key') }); };
-    const hosted = form.data.provider !== 'lab' && !local.includes(form.data.provider);
-    const foot = <div className="panel-foot"><button className="button primary" disabled={form.processing}><Check size={18} /> {form.processing ? 'Salvando…' : 'Salvar alterações'}</button></div>;
+    const form = useForm({ name: settings.name });
+    const save = event => { event.preventDefault(); form.put('/configuracoes', { preserveScroll: true, preserveState: true }); };
     return <Layout title="Configurações">
         <Heading title="Configurações" description="Workspace, motor de IA e integrações." />
         <Tabs name="config" label="Seções" value={tab} onChange={setTab} className="page-tabs" tabs={[
-            { key: 'workspace', label: 'Workspace', icon: LayoutGrid, alert: !!(form.errors.name || form.errors.accent) },
-            { key: 'motor', label: 'Motor de IA', icon: ScanLine, alert: !!(form.errors.provider || form.errors.model || form.errors.api_key) },
+            { key: 'workspace', label: 'Workspace', icon: LayoutGrid, alert: !!form.errors.name },
+            { key: 'motor', label: 'Motor de IA', icon: ScanLine },
             { key: 'integracoes', label: 'Integrações', icon: KeyRound, count: tokens.length },
         ]} />
         {tab === 'workspace' && <TabPanel name="config" id="workspace"><form className="panel narrow" onSubmit={save}>
-            <div className="panel-header"><div><h2>Workspace</h2><p>Nome e cor exibidos no painel.</p></div></div>
+            <div className="panel-header"><div><h2>Workspace</h2><p>Nome exibido no painel e nos relatórios.</p></div></div>
             <div className="panel-body form-stack">
-                <Field label="Nome do workspace" error={form.errors.name}><input required value={form.data.name} onChange={e => form.setData('name', e.target.value)} /></Field>
-                <div className={'field ' + (form.errors.accent ? 'has-error' : '')}>
-                    <label htmlFor="accent">Cor de destaque</label>
-                    <div className="color-field"><input id="accent" type="color" value={form.data.accent} onChange={e => form.setData('accent', e.target.value)} /><code>{form.data.accent}</code><button type="button" className="text-link" onClick={() => form.setData('accent', '#6435ea')}>Restaurar padrão</button></div>
-                    {form.errors.accent && <small className="field-error" role="alert"><TriangleAlert size={13} />{form.errors.accent}</small>}
-                </div>
+                <Field label="Nome do workspace" error={form.errors.name}><input required maxLength={60} value={form.data.name} onChange={e => form.setData('name', e.target.value)} /></Field>
             </div>
-            {foot}
+            <div className="panel-foot"><button className="button primary" disabled={form.processing}><Check size={18} /> {form.processing ? 'Salvando…' : 'Salvar'}</button></div>
         </form></TabPanel>}
-        {tab === 'motor' && <TabPanel name="config" id="motor"><form className="panel narrow" onSubmit={save}>
-            <div className="panel-header"><div><h2>Motor de IA</h2><p>A IA escolhe as ações. O executor confirma cada achado no Firefox isolado.</p></div></div>
-            <div className="panel-body form-stack">
-                <Field label="Provedor" error={form.errors.provider}><select value={form.data.provider} onChange={e => form.setData('provider', e.target.value)}>{Object.entries(providers).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field>
-                {hosted && <>
-                    <Field label="Modelo" error={form.errors.model} help="Identificador do modelo no provedor."><input className="mono-input" value={form.data.model} onChange={e => form.setData('model', e.target.value)} placeholder="claude-sonnet-5-5" /></Field>
-                    <Field label="Chave de API" error={form.errors.api_key} help={hasKey && form.data.provider === settings.provider ? 'Há uma chave salva. Deixe vazio para manter.' : 'Fica criptografada no workspace.'}><input type="password" autoComplete="new-password" value={form.data.api_key} onChange={e => form.setData('api_key', e.target.value)} placeholder={hasKey && form.data.provider === settings.provider ? '••••••••••••' : ''} /></Field>
-                </>}
-            </div>
-            {foot}
-        </form></TabPanel>}
+        {tab === 'motor' && <TabPanel name="config" id="motor"><section className="panel narrow">
+            <div className="panel-header"><div><h2>Motor de IA</h2><p>Fornecido pela plataforma. A IA escolhe as ações e o executor confirma cada achado.</p></div>{engine ? <Badge tone="green">Ativo</Badge> : <Badge>Desligado</Badge>}</div>
+            {engine ? <dl className="engine-facts">
+                <div><dt>Provedor</dt><dd>{engine.label}</dd></div>
+                {engine.model && <div><dt>Modelo</dt><dd className="mono">{engine.model}</dd></div>}
+                {usage && <div><dt>Sessões com IA hoje</dt><dd>{usage.used} de {usage.limit}</dd></div>}
+            </dl> : <Empty icon={ScanLine} title="Motor de IA ainda não configurado">Enquanto isso, as sessões rodam o roteiro do laboratório.</Empty>}
+        </section></TabPanel>}
         {tab === 'integracoes' && <TabPanel name="config" id="integracoes"><Integrations hasWebhook={hasWebhook} tokens={tokens} issuedToken={issuedToken} apiBase={apiBase} /></TabPanel>}
     </Layout>;
 }

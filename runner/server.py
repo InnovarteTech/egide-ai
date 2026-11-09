@@ -133,7 +133,7 @@ def firefox(actor):
          "--profile", str(profile), "--kiosk", SESSION["urls"].get(actor, SESSION["url"])],
         env=FIREFOX_ENV, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
-    wait_for_page(15)
+    wait_for_page(45)
 
 
 def wait_for_page(seconds=4):

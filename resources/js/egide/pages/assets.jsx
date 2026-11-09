@@ -18,7 +18,7 @@ function AssetDialog({ open, onClose, localTargets }) {
     const actorFailing = value => ['email_', 'password_', 'marker_', 'origin_', 'path_'].some(field => form.errors[field + value]);
     const submit = event => {
         event.preventDefault();
-        form.post('/ativos', {
+        form.post('/ambientes', {
             preserveScroll: true, preserveState: true,
             onSuccess: () => { form.reset(); setSection('ambiente'); onClose(); },
             onError: errors => {
@@ -30,19 +30,19 @@ function AssetDialog({ open, onClose, localTargets }) {
     };
     const input = (field, props = {}) => <input autoComplete="off" value={form.data[field]} onChange={e => form.setData(field, e.target.value)} {...props} />;
     const close = () => { form.reset('password_a', 'password_b'); onClose(); };
-    return <Dialog open={open} onClose={close} locked={form.processing} title="Adicionar ativo" description="Cadastre o ambiente e o que o agente pode acessar." size="dialog-lg" footer={<>
+    return <Dialog open={open} onClose={close} locked={form.processing} title="Adicionar ambiente" description="Cadastre o ambiente e o que o agente pode acessar." size="dialog-lg" footer={<>
         <button type="button" className="button secondary" onClick={close}>Cancelar</button>
-        <button type="submit" form="asset-form" className="button primary" disabled={form.processing}>{form.processing ? 'Cadastrando…' : 'Cadastrar ativo'} <ArrowRight size={17} /></button>
+        <button type="submit" form="asset-form" className="button primary" disabled={form.processing}>{form.processing ? 'Cadastrando…' : 'Cadastrar ambiente'} <ArrowRight size={17} /></button>
     </>}>
         <Tabs name="ativo" label="Etapas do cadastro" value={section} onChange={setSection} className="dialog-tabs" tabs={[
-            { key: 'ambiente', label: 'Ambiente', alert: failing('ambiente') },
+            { key: 'ambiente', label: 'Dados', alert: failing('ambiente') },
             { key: 'escopo', label: 'Escopo', alert: failing('escopo') },
             { key: 'contas', label: 'Contas de teste', alert: failing('contas') },
         ]} />
         <form id="asset-form" onSubmit={submit} noValidate>
             {section === 'ambiente' && <TabPanel name="ativo" id="ambiente" className="form-stack">
                 <div className="fields-two">
-                    <Field label="Nome do ativo" error={form.errors.name}>{input('name', { placeholder: 'Portal de homologação', 'data-autofocus': true })}</Field>
+                    <Field label="Nome do ambiente" error={form.errors.name}>{input('name', { placeholder: 'Portal de homologação', 'data-autofocus': true })}</Field>
                     <Field label="Origem HTTPS" error={form.errors.origin} help="Domínio do ambiente de teste.">{input('origin', { type: 'url', placeholder: 'https://staging.empresa.com.br', inputMode: 'url' })}</Field>
                 </div>
                 <div className="fields-two">
@@ -83,19 +83,19 @@ export function Assets({ targets, localTargets }) {
     const [tab, setTab] = useTab('aba', 'ambientes', ['ambientes', 'local']);
     const { errors } = usePage().props;
     const pending = targets.filter(target => !target.verified_at).length;
-    return <Layout title="Ativos">
-        <Heading title="Ativos" description="Ambientes autorizados e regras de teste.">
-            <button type="button" className="button primary" onClick={() => setAdding(true)}><Plus size={19} /> Adicionar ativo</button>
+    return <Layout title="Ambientes">
+        <Heading title="Ambientes" description="Sistemas autorizados e regras de teste.">
+            <button type="button" className="button primary" onClick={() => setAdding(true)}><Plus size={19} /> Adicionar ambiente</button>
         </Heading>
         {errors.verification && <div className="notice error-notice" role="alert"><TriangleAlert size={16} />{errors.verification}</div>}
         <Tabs name="ativos" label="Seções" value={tab} onChange={setTab} className="page-tabs" tabs={[
-            { key: 'ambientes', label: 'Ambientes', icon: Layers3, count: targets.length },
+            { key: 'ambientes', label: 'Cadastrados', icon: Layers3, count: targets.length },
             { key: 'local', label: 'App na sua máquina', icon: Laptop },
         ]} />
         {tab === 'ambientes' && <TabPanel name="ativos" id="ambientes">
             <section className="panel">
                 <div className="panel-header"><div><h2>Ambientes cadastrados</h2><p>{pending ? plural(pending, 'aguardando verificação', 'aguardando verificação') : 'Todos verificados'}</p></div></div>
-                {!targets.length && <Empty icon={Layers3} title="Nenhum ativo cadastrado" action={<button type="button" className="text-link" onClick={() => setAdding(true)}>Adicionar primeiro ativo <ArrowRight size={16} /></button>}>Adicione e verifique um ambiente para iniciar uma exploração externa.</Empty>}
+                {!targets.length && <Empty icon={Layers3} title="Nenhum ambiente cadastrado" action={<button type="button" className="text-link" onClick={() => setAdding(true)}>Adicionar primeiro ambiente <ArrowRight size={16} /></button>}>Adicione e verifique um ambiente para iniciar uma exploração externa.</Empty>}
                 <ul className="asset-list">{targets.map(target => <AssetRow key={target.id} target={target} />)}</ul>
             </section>
         </TabPanel>}
@@ -105,7 +105,7 @@ export function Assets({ targets, localTargets }) {
                 <div className="guide">
                     {localTargets && <div className="guide-item">
                         <div className="guide-title"><h3>Sem túnel</h3><Badge tone="green">Recomendado</Badge></div>
-                        <p>Cadastre o ativo com a porta local e uma origem terminada em <code>.local.egide.test</code>. O executor acessa a porta da sua máquina e nada fica exposto na internet.</p>
+                        <p>Cadastre o ambiente com a porta local e uma origem terminada em <code>.local.egide.test</code>. O executor acessa a porta da sua máquina e nada fica exposto na internet.</p>
                         <p className="muted small">Subdomínio por empresa: <code>https://empresa-a.local.egide.test</code></p>
                     </div>}
                     <div className="guide-item">
@@ -133,14 +133,14 @@ function AssetRow({ target }) {
         {target.verified_at ? <div className="asset-foot">
             <span className="asset-label">Reteste automático</span>
             <div className="segmented" role="group" aria-label={'Reteste automático de ' + target.name}>
-                {[['off', 'Desligado'], ['daily', 'Diário'], ['weekly', 'Semanal']].map(([value, label]) => <Link key={value} href={'/ativos/' + target.id + '/agenda'} method="put" data={{ schedule: value }} as="button" preserveScroll aria-pressed={schedule === value}>{label}</Link>)}
+                {[['off', 'Desligado'], ['daily', 'Diário'], ['weekly', 'Semanal']].map(([value, label]) => <Link key={value} href={'/ambientes/' + target.id + '/agenda'} method="put" data={{ schedule: value }} as="button" preserveScroll aria-pressed={schedule === value}>{label}</Link>)}
             </div>
             {target.next_run_at && <span className="asset-next"><RefreshCw size={13} /> {formatDate(target.next_run_at)}</span>}
         </div> : <div className="asset-verify">
             <p>Publique este código em <code>/.well-known/egide-verification.txt</code> e confirme.</p>
             <div className="asset-verify-actions">
                 <CopyBox value={target.verification_token} />
-                <Link href={'/ativos/' + target.id + '/verificar'} method="post" as="button" className="button primary compact"><ShieldCheck size={16} /> Verificar domínio</Link>
+                <Link href={'/ambientes/' + target.id + '/verificar'} method="post" as="button" className="button primary compact"><ShieldCheck size={16} /> Verificar domínio</Link>
             </div>
         </div>}
     </li>;

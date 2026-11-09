@@ -1,6 +1,6 @@
 # .github/workflows/egide.yml
 # Segredos no repositório: EGIDE_TOKEN (token de API da Égide AI).
-# Variáveis: EGIDE_API (ex.: https://app.seu-dominio.com/api/v1) e EGIDE_ATIVO (ID do ativo verificado).
+# Variáveis: EGIDE_API (ex.: https://app.seu-dominio.com/api/v1) e EGIDE_ATIVO (ID do ambiente verificado).
 name: Égide AI · avaliação autorizada
 
 on:

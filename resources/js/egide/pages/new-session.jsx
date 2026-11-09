@@ -1,10 +1,11 @@
-import { Link, useForm } from '@inertiajs/react';
+import { Link, useForm, usePage } from '@inertiajs/react';
 import { ArrowRight, Check, CirclePlay, Globe2, Info, Monitor, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { scanLabel } from '../format';
 import { Field } from '../ui';
 import { Layout, Heading } from '../layout';
 
 export function NewSession({ targets, initial, externalEngine, labEngine, initialAgent, previous }) {
+    const { auth } = usePage().props;
     const mode = ['laboratory', 'retest', 'external'].includes(initial) ? initial : 'laboratory';
     const form = useForm({ mode: previous ? 'external' : mode, target_id: previous?.target_id ?? targets[0]?.id ?? '', budget: previous?.budget ?? 80, authorized: false, agent: initialAgent, retest_of: previous?.id ?? null });
     const target = targets.find(item => String(item.id) === String(form.data.target_id));
@@ -13,7 +14,7 @@ export function NewSession({ targets, initial, externalEngine, labEngine, initia
     const modes = [
         ['laboratory', 'Laboratório', 'App vulnerável com dados fictícios.', CirclePlay],
         ['retest', 'Reteste', 'Versão corrigida, mesma prova.', RefreshCw],
-        ['external', 'Ativo verificado', 'Seu domínio, no escopo cadastrado.', Globe2],
+        ['external', 'Ambiente verificado', 'Seu domínio, no escopo cadastrado.', Globe2],
     ];
     return <Layout title="Nova sessão">
         <Heading title="Nova sessão" description="Escolha o ambiente e os limites da avaliação." />
@@ -31,10 +32,10 @@ export function NewSession({ targets, initial, externalEngine, labEngine, initia
                             <span className="mode-check" aria-hidden="true"><Check size={13} /></span>
                         </label>)}</div>}
                     {external && <div className="form-stack">
-                        <Field label="Ativo" error={form.errors.target_id}><select value={form.data.target_id} required disabled={!!previous} onChange={e => form.setData('target_id', e.target.value)}><option value="">Selecione um ativo verificado</option>{targets.map(item => <option value={item.id} key={item.id}>{item.name} · {item.origin}</option>)}</select></Field>
-                        {blocked && <div className="callout"><Info size={16} /><div><strong>Falta preparar o ambiente</strong><div className="callout-links">{!target && <Link href="/ativos" className="text-link">Verificar um ativo <ArrowRight size={14} /></Link>}{!externalEngine && <Link href="/configuracoes?aba=motor" className="text-link">Configurar o motor de IA <ArrowRight size={14} /></Link>}</div></div></div>}
+                        <Field label="Ambiente" error={form.errors.target_id}><select value={form.data.target_id} required disabled={!!previous} onChange={e => form.setData('target_id', e.target.value)}><option value="">Selecione um ambiente verificado</option>{targets.map(item => <option value={item.id} key={item.id}>{item.name} · {item.origin}</option>)}</select></Field>
+                        {blocked && <div className="callout"><Info size={16} /><div><strong>Falta preparar o ambiente</strong><div className="callout-links">{!target && <Link href="/ambientes" className="text-link">Verificar um ambiente <ArrowRight size={14} /></Link>}{!externalEngine && (auth?.is_admin ? <Link href="/admin?aba=motor" className="text-link">Configurar o motor de IA <ArrowRight size={14} /></Link> : <span>O motor de IA ainda não foi ativado pelo administrador.</span>)}</div></div></div>}
                         {target && externalEngine && <p className="form-note"><ShieldCheck size={16} /><span>{target.comparison ? 'Prova de acesso entre duas contas' : 'Mapeamento da navegação'} · {externalEngine}</span></p>}
-                        <label className="consent"><input type="checkbox" required checked={form.data.authorized} onChange={e => form.setData('authorized', e.target.checked)} /><span><strong>Confirmo a autorização</strong><small>Tenho permissão para testar este ativo dentro do escopo cadastrado.</small></span></label>
+                        <label className="consent"><input type="checkbox" required checked={form.data.authorized} onChange={e => form.setData('authorized', e.target.checked)} /><span><strong>Confirmo a autorização</strong><small>Tenho permissão para testar este ambiente dentro do escopo cadastrado.</small></span></label>
                     </div>}
                 </fieldset>
                 <fieldset className="form-section">

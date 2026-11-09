@@ -6,7 +6,6 @@ use App\Jobs\RunScan;
 use App\Models\Scan;
 use App\Models\Target;
 use App\Models\User;
-use App\Models\Workspace;
 use App\Security\Planner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
@@ -30,19 +29,18 @@ class EgideTest extends TestCase
         Queue::assertPushed(RunScan::class, fn (RunScan $job) => $job->scanId === $scan->id);
     }
 
-    public function test_laboratory_can_use_the_workspace_model(): void
+    public function test_laboratory_uses_the_platform_engine(): void
     {
         Queue::fake();
         $user = User::factory()->create();
-        Workspace::create([
-            'user_id' => $user->id, 'provider' => 'anthropic', 'model' => 'test-model', 'api_key' => 'test-key',
-        ]);
+        $this->platformEngine();
 
         $this->actingAs($user)->post('/sessoes', ['mode' => 'retest', 'agent' => true])->assertRedirect();
 
         $scan = Scan::sole();
         $this->assertSame('anthropic', $scan->provider);
         $this->assertSame('test-model', $scan->model);
+        $this->assertSame('test-key', $scan->engine_key);
         $this->assertTrue($scan->scope['lab']);
         Queue::assertPushed(RunScan::class, fn (RunScan $job) => $job->scanId === $scan->id);
     }
@@ -189,7 +187,7 @@ class EgideTest extends TestCase
     {
         Queue::fake();
         $user = User::factory()->create();
-        Workspace::create(['user_id' => $user->id, 'provider' => 'openai', 'model' => 'model', 'api_key' => 'key']);
+        $this->platformEngine('openai', 'model', 'key');
         $target = Target::create([
             'user_id' => $user->id, 'name' => 'Staging', 'origin' => 'https://staging.example.com',
             'verification_token' => 'token', 'rules' => [], 'denied' => [],
@@ -213,10 +211,10 @@ class EgideTest extends TestCase
             'marker_a' => 'ESCOPO-0123456789ABCDEF', 'marker_b' => 'ESCOPO-0123456789ABCDEF',
         ];
 
-        $this->actingAs($user)->post('/ativos', $data)->assertSessionHasErrors('marker_b');
+        $this->actingAs($user)->post('/ambientes', $data)->assertSessionHasErrors('marker_b');
         $this->assertDatabaseCount('targets', 0);
         $data['marker_b'] = 'ESCOPO-FEDCBA9876543210';
-        $this->post('/ativos', $data)->assertRedirect()->assertSessionHasNoErrors();
+        $this->post('/ambientes', $data)->assertRedirect()->assertSessionHasNoErrors();
 
         $target = Target::sole();
         $this->assertSame($data['marker_b'], $target->credentials['b']['marker']);
@@ -229,7 +227,7 @@ class EgideTest extends TestCase
         Queue::fake();
         $user = User::factory()->create();
         $other = User::factory()->create();
-        Workspace::create(['user_id' => $user->id, 'provider' => 'openai', 'model' => 'model', 'api_key' => 'key']);
+        $this->platformEngine('openai', 'model', 'key');
         $target = Target::create([
             'user_id' => $user->id, 'name' => 'Staging', 'origin' => 'https://staging.example.com',
             'verification_token' => 'token', 'rules' => [], 'denied' => [], 'verified_at' => now(),

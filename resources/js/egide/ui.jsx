@@ -28,6 +28,13 @@ export function useTab(name, fallback, allowed) {
     return [tab, change];
 }
 export function Tabs({ name, label, tabs, value, onChange, className = '' }) {
+    useEffect(() => {
+        const tab = document.getElementById(name + '-tab-' + value);
+        const bar = tab?.closest('.tabbar');
+        if (!bar || bar.scrollWidth <= bar.clientWidth) return;
+        const offset = tab.getBoundingClientRect().left - bar.getBoundingClientRect().left;
+        if (offset < 0 || offset + tab.offsetWidth > bar.clientWidth) bar.scrollLeft += offset - (bar.clientWidth - tab.offsetWidth) / 2;
+    }, [name, value]);
     const move = (event, index) => {
         const offsets = { ArrowRight: 1, ArrowLeft: -1 };
         let next = null;

@@ -5,7 +5,7 @@ import { Logo } from './ui';
 
 const navigation = [
     ['Visão geral', '/', LayoutGrid],
-    ['Ativos', '/ativos', Layers3],
+    ['Ambientes', '/ambientes', Layers3],
     ['Sessões', '/sessoes', CirclePlay],
     ['Achados', '/achados', Crosshair],
     ['Sentinela', '/sentinela', Radio],
@@ -54,7 +54,7 @@ function Sidebar({ open, close }) {
 export function Layout({ title, children }) {
     const [menu, setMenu] = useState(false);
     const { props } = usePage();
-    return <div className="shell" style={{ '--accent': props.workspace?.accent ?? '#6435ea' }}>
+    return <div className="shell">
         <Head title={title} />
         <Sidebar open={menu} close={() => setMenu(false)} />
         <main className="main">

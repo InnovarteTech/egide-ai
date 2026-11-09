@@ -3,12 +3,19 @@
 namespace App\Http\Controllers;
 
 use App\Models\Finding;
+use App\Models\Platform;
 use App\Models\Scan;
 use App\Models\Target;
 use App\Models\User;
+use App\Security\Engine;
+use App\Security\Planner;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
+use RuntimeException;
 
 class AdminController extends Controller
 {
@@ -17,6 +24,7 @@ class AdminController extends Controller
     public function index()
     {
         $active = Scan::whereIn('status', ['queued', 'running']);
+        $platform = Platform::current();
 
         return Inertia::render('Admin', [
             'paused' => (bool) Cache::get(self::PAUSED),
@@ -36,7 +44,47 @@ class AdminController extends Controller
                     'findings' => Finding::whereIn('scan_id', Scan::where('user_id', $user->id)->select('id'))->count(),
                 ]),
             'horizon' => true,
+            'engine' => [
+                'provider' => $platform->ai_provider, 'model' => $platform->ai_model,
+                'keyHint' => filled($key = $platform->key()) ? '…'.mb_substr($key, -4) : null,
+                'limit' => $platform->ai_daily_limit, 'ready' => Engine::platform() !== null,
+                'providers' => Engine::providers(), 'hosted' => Engine::HOSTED,
+            ],
         ]);
+    }
+
+    public function saveEngine(Request $request)
+    {
+        $data = $this->engineInput($request, true);
+        $hosted = in_array($data['provider'], Engine::HOSTED, true);
+        Platform::current()->update([
+            'ai_provider' => $data['provider'],
+            'ai_model' => $data['provider'] === 'lab' ? null : $data['model'],
+            'ai_key' => $hosted ? $data['key'] : null,
+            'ai_daily_limit' => $data['daily_limit'],
+        ]);
+
+        return back()->with('notice', $data['provider'] === 'lab'
+            ? 'Motor de IA desligado. As sessões usam o roteiro do laboratório.'
+            : 'Motor de IA da plataforma salvo.');
+    }
+
+    public function testEngine(Request $request, Planner $planner)
+    {
+        $data = $this->engineInput($request, false);
+        if ($data['provider'] === 'lab') {
+            throw ValidationException::withMessages(['provider' => 'Escolha um provedor de IA para testar.']);
+        }
+        $field = in_array($data['provider'], Engine::HOSTED, true) ? 'api_key' : 'provider';
+        try {
+            $planner->check($data['provider'], $data['model'], $data['key']);
+        } catch (ConnectionException) {
+            throw ValidationException::withMessages([$field => 'Não foi possível conectar ao provedor: tempo esgotado ou rede bloqueada.']);
+        } catch (RuntimeException $exception) {
+            throw ValidationException::withMessages([$field => $exception->getMessage()]);
+        }
+
+        return back()->with('notice', 'Conexão confirmada: '.config('egide.providers.'.$data['provider']).' respondeu.');
     }
 
     public function stopAll()
@@ -74,6 +122,30 @@ class AdminController extends Controller
         }
 
         return back()->with('notice', $suspend ? 'Conta suspensa e sessões encerradas.' : 'Conta reativada.');
+    }
+
+    private function engineInput(Request $request, bool $saving): array
+    {
+        $data = $request->validate([
+            'provider' => ['required', Rule::in(array_keys(Engine::providers()))],
+            'model' => 'nullable|string|max:100|regex:/^[a-zA-Z0-9_.:\/-]+$/',
+            'api_key' => 'nullable|string|max:450',
+            'daily_limit' => [$saving ? 'required' : 'nullable', 'integer', 'min:1', 'max:500'],
+        ]);
+        $platform = Platform::current();
+        $data['model'] ??= null;
+        $data['key'] = $data['api_key'] ?? ($platform->ai_provider === $data['provider'] ? $platform->key() : null);
+        if (in_array($data['provider'], Engine::HOSTED, true)) {
+            $errors = array_filter([
+                'model' => blank($data['model']) ? 'Informe o identificador do modelo.' : null,
+                'api_key' => blank($data['key']) ? 'Informe a chave de API desse provedor.' : null,
+            ]);
+            if ($errors) {
+                throw ValidationException::withMessages($errors);
+            }
+        }
+
+        return $data;
     }
 
     private function withOwner($scans)

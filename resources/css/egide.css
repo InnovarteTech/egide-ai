@@ -578,3 +578,12 @@ code.request{font-size:.78rem;overflow-wrap:anywhere;color:#2d2340}
     .kill-actions .button{flex:1}
 }
 @media(pointer:coarse),(max-width:700px){input:not([type=checkbox],[type=radio],[type=range],[type=color]),textarea,select{font-size:16px}}
+.engine-form .form-stack,.engine-status{max-width:560px}
+.engine-status{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 18px;color:var(--muted);font-size:.86rem}
+.engine-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin:0;padding:18px 6px}
+.engine-facts>div{padding:0 16px;border-right:1px solid var(--line);display:grid;gap:6px;min-width:0}
+.engine-facts>div:last-child{border:0}
+.engine-facts dt{font-family:var(--mono);font-size:.66rem;letter-spacing:.09em;text-transform:uppercase;color:#645a76;font-weight:600}
+.engine-facts dd{margin:0;font-family:var(--display);font-weight:800;font-size:1.02rem;overflow-wrap:anywhere}
+.engine-facts dd.mono{font-family:var(--mono);font-weight:600;font-size:.88rem}
+@media(max-width:700px){.engine-facts{grid-template-columns:1fr;gap:14px}.engine-facts>div{border-right:0}}

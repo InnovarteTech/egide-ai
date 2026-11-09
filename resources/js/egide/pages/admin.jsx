@@ -1,7 +1,7 @@
-import { Link, usePage } from '@inertiajs/react';
-import { Activity, CirclePlay, Layers3, LockKeyhole, OctagonX, Pause, Play, Square, UserX, Users } from 'lucide-react';
+import { Link, useForm, usePage } from '@inertiajs/react';
+import { Activity, Check, CirclePlay, Layers3, LockKeyhole, OctagonX, Pause, Play, PlugZap, Square, UserX, Users } from 'lucide-react';
 import { outcomes, severities, scanLabel, plural } from '../format';
-import { Badge, Status, useTab, Tabs, TabPanel, ConfirmAction, Empty } from '../ui';
+import { Badge, Status, useTab, Tabs, TabPanel, ConfirmAction, Empty, Field } from '../ui';
 import { Layout, Heading } from '../layout';
 
 function AdminScans({ scans, stoppable }) {
@@ -18,9 +18,32 @@ function AdminScans({ scans, stoppable }) {
         </tr>)}</tbody>
     </table></div>;
 }
-export function Admin({ paused, stats, active, recent, users, horizon }) {
-    const { auth } = usePage().props;
-    const [tab, setTab] = useTab('aba', 'ativas', ['ativas', 'recentes', 'contas', 'achados']);
+const engineFields = ['provider', 'model', 'api_key', 'daily_limit'];
+function EngineForm({ engine }) {
+    const form = useForm({ provider: engine.provider, model: engine.model ?? '', api_key: '', daily_limit: engine.limit });
+    const hosted = engine.hosted.includes(form.data.provider);
+    const saved = form.data.provider === engine.provider && engine.keyHint;
+    const options = { preserveScroll: true, preserveState: true };
+    const save = event => { event.preventDefault(); form.put('/admin/motor', { ...options, onSuccess: () => form.reset('api_key') }); };
+    return <form className="engine-form" onSubmit={save}>
+        <div className="panel-body">
+            <div className="engine-status">{engine.ready ? <Badge tone="green">Ativo para todas as contas</Badge> : <Badge>Desligado</Badge>}<span>{engine.ready ? 'Todas as sessões com IA usam este motor.' : 'Sem motor, as sessões rodam o roteiro do laboratório.'}</span></div>
+            <div className="form-stack">
+                <Field label="Provedor" error={form.errors.provider}><select value={form.data.provider} onChange={e => form.setData('provider', e.target.value)}>{Object.entries(engine.providers).map(([key, label]) => <option key={key} value={key}>{key === 'lab' ? 'Desligado (roteiro do laboratório)' : label}</option>)}</select></Field>
+                {form.data.provider !== 'lab' && <Field label="Modelo" error={form.errors.model} help={hosted ? 'Identificador do modelo no provedor.' : 'Opcional no motor local.'}><input className="mono-input" value={form.data.model} onChange={e => form.setData('model', e.target.value)} placeholder={form.data.provider === 'anthropic' ? 'claude-sonnet-5-5' : ''} /></Field>}
+                {hosted && <Field label="Chave de API" error={form.errors.api_key} help={saved ? 'Chave salva terminando em ' + engine.keyHint + '. Deixe vazio para manter.' : 'Fica criptografada no banco. Depois de salva, só aparece o final.'}><input type="password" autoComplete="new-password" className="mono-input" value={form.data.api_key} onChange={e => form.setData('api_key', e.target.value)} placeholder={saved ? '••••••••' + engine.keyHint.slice(1) : ''} /></Field>}
+                <Field label="Limite diário por conta" error={form.errors.daily_limit} help="Sessões com IA por conta, por dia. Admins não têm limite."><input type="number" min={1} max={500} inputMode="numeric" value={form.data.daily_limit} onChange={e => form.setData('daily_limit', e.target.value)} /></Field>
+            </div>
+        </div>
+        <div className="panel-foot">
+            {form.data.provider !== 'lab' && <button type="button" className="button secondary" disabled={form.processing} onClick={() => form.post('/admin/motor/testar', options)}><PlugZap size={16} /> Testar conexão</button>}
+            <button className="button primary" disabled={form.processing}><Check size={17} /> {form.processing ? 'Salvando…' : 'Salvar motor'}</button>
+        </div>
+    </form>;
+}
+export function Admin({ paused, stats, active, recent, users, horizon, engine }) {
+    const { auth, errors } = usePage().props;
+    const [tab, setTab] = useTab('aba', 'ativas', ['ativas', 'recentes', 'contas', 'achados', 'motor']);
     const levels = ['critical', 'high', 'medium', 'low'];
     return <Layout title="Super admin">
         <Heading title="Super admin" description="Sessões de todas as contas, parada de emergência e acesso.">
@@ -35,7 +58,7 @@ export function Admin({ paused, stats, active, recent, users, horizon }) {
             </div>
         </section>
         <div className="metrics admin-metrics">
-            {[['Contas', stats.users, Users], ['Ativos verificados', stats.targets, Layers3], ['Sessões', stats.sessions, CirclePlay], ['Tentativas barradas', stats.blocked, LockKeyhole]].map(([label, value, Icon]) => <div key={label} className="metric">
+            {[['Contas', stats.users, Users], ['Ambientes verificados', stats.targets, Layers3], ['Sessões', stats.sessions, CirclePlay], ['Tentativas barradas', stats.blocked, LockKeyhole]].map(([label, value, Icon]) => <div key={label} className="metric">
                 <span className="metric-icon"><Icon size={23} /></span><div><div className="metric-label">{label}</div><strong>{value}</strong></div>
             </div>)}
         </div>
@@ -45,11 +68,12 @@ export function Admin({ paused, stats, active, recent, users, horizon }) {
                 { key: 'recentes', label: 'Últimas sessões' },
                 { key: 'contas', label: 'Contas', count: users.length },
                 { key: 'achados', label: 'Achados' },
+                { key: 'motor', label: 'Motor de IA', alert: engineFields.some(field => errors?.[field]) },
             ]} /></div>
             {tab === 'ativas' && <TabPanel name="admin" id="ativas"><AdminScans scans={active} stoppable /></TabPanel>}
             {tab === 'recentes' && <TabPanel name="admin" id="recentes"><AdminScans scans={recent} /></TabPanel>}
             {tab === 'contas' && <TabPanel name="admin" id="contas"><div className="table-scroll"><table className="data-table">
-                <thead><tr><th>Conta</th><th className="hide-sm num">Sessões</th><th className="hide-sm num">Ativos</th><th className="num">Achados</th><th>Estado</th><th><span className="sr-only">Ação</span></th></tr></thead>
+                <thead><tr><th>Conta</th><th className="hide-sm num">Sessões</th><th className="hide-sm num">Ambientes</th><th className="num">Achados</th><th>Estado</th><th><span className="sr-only">Ação</span></th></tr></thead>
                 <tbody>{users.map(user => <tr key={user.id}>
                     <td><div className="cell-stack"><strong>{user.name}</strong><small>{user.email}</small></div></td>
                     <td className="hide-sm num">{user.scans_count}</td><td className="hide-sm num">{user.targets_count}</td><td className="num">{user.findings}</td>
@@ -59,6 +83,7 @@ export function Admin({ paused, stats, active, recent, users, horizon }) {
                         : <ConfirmAction href={'/admin/usuarios/' + user.id + '/suspensao'} data={{ suspended: true }} title={'Suspender ' + user.name + '?'} description="A conta perde o acesso e as sessões dela são encerradas." confirmLabel="Suspender conta"><UserX size={14} /> Suspender</ConfirmAction>)}</td>
                 </tr>)}</tbody>
             </table></div></TabPanel>}
+            {tab === 'motor' && <TabPanel name="admin" id="motor"><EngineForm engine={engine} /></TabPanel>}
             {tab === 'achados' && <TabPanel name="admin" id="achados" className="panel-body">
                 <div className="severity-row">{levels.map(level => <div key={level} className={'severity-count ' + severities[level][1]}><strong>{stats.severity[level] ?? 0}</strong><span>{severities[level][0]}</span></div>)}</div>
             </TabPanel>}

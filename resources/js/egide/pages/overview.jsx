@@ -15,7 +15,7 @@ function ScanTable({ scans }) {
         Execute o laboratório para acompanhar sua primeira avaliação.
     </Empty>;
     return <div className="table-scroll scan-table"><table>
-        <thead><tr><th>Sessão</th><th>Ativo</th><th>Início</th><th>Estado</th><th><span className="sr-only">Abrir</span></th></tr></thead>
+        <thead><tr><th>Sessão</th><th>Ambiente</th><th>Início</th><th>Estado</th><th><span className="sr-only">Abrir</span></th></tr></thead>
         <tbody>{scans.map(scan => <tr key={scan.id}>
             <td><Link href={'/sessoes/' + scan.id} className="mono scan-id">{scanLabel(scan)}</Link></td>
             <td>{scan.name}</td><td className="muted">{formatDate(scan.created_at)}</td><td><Status status={scan.status} /></td>
@@ -60,7 +60,7 @@ export function Overview({ scans, stats, agentAvailable, spotlight }) {
     const total = severityBars.reduce((sum, [key]) => sum + (severity[key] ?? 0), 0);
     const top = Math.max(1, ...severityBars.map(([key]) => severity[key] ?? 0));
     return <Layout title="Visão geral">
-        <Heading title="Visão geral" description="Acompanhe suas sessões e valide a segurança dos seus ativos.">
+        <Heading title="Visão geral" description="Acompanhe suas sessões e valide a segurança dos seus ambientes.">
             <Link href="/sessoes/nova" className="button primary"><Plus size={19} /> Nova sessão</Link>
         </Heading>
         {spotlight ? <Spotlight scan={spotlight} /> : <section className="hero">
@@ -77,7 +77,7 @@ export function Overview({ scans, stats, agentAvailable, spotlight }) {
         </section>}
         <div className="metrics">
             {[
-                ['Ativos verificados', stats.assets, Layers3, '/ativos', 'Domínios autorizados'],
+                ['Ambientes verificados', stats.assets, Layers3, '/ambientes', 'Domínios autorizados'],
                 ['Sessões realizadas', stats.sessions, CirclePlay, '/sessoes', stats.active ? stats.active + ' em andamento' : 'Concluídas'],
                 ['Achados confirmados', stats.findings, Crosshair, '/achados', 'Com evidência'],
             ].map(([label, value, Icon, href, caption]) => <Link href={href} key={label} className="metric">

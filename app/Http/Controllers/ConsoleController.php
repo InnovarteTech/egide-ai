@@ -5,18 +5,18 @@ namespace App\Http\Controllers;
 use App\Jobs\RunScan;
 use App\Models\ApiToken;
 use App\Models\Finding;
+use App\Models\Platform;
 use App\Models\Scan;
 use App\Models\Target;
 use App\Models\Workspace;
 use App\Security\Demo;
-use App\Security\Planner;
+use App\Security\Engine;
 use App\Security\Scope;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
@@ -32,7 +32,7 @@ class ConsoleController extends Controller
             ?? (clone $scans)->where('status', 'completed')->latest('finished_at')->first();
 
         return Inertia::render('Overview', [
-            'agentAvailable' => $this->agentProvider($this->workspace($request)) !== null,
+            'agentAvailable' => $this->engine($this->workspace($request)) !== null,
             'scans' => (clone $scans)->latest()->limit(6)->get(),
             'spotlight' => $spotlight ? [
                 ...$spotlight->only(['id', 'name', 'status', 'phase', 'result', 'model', 'request_count', 'budget', 'blocked_count', 'started_at', 'finished_at', 'updated_at']),
@@ -115,7 +115,7 @@ class ConsoleController extends Controller
                     throw ValidationException::withMessages(['origin_'.$actor => 'No modo local, use um subdomínio terminado em '.Scope::LOCAL_SUFFIX.'.']);
                 }
                 if ($accountOrigin && ! Scope::sibling($origin, $accountOrigin)) {
-                    throw ValidationException::withMessages(['origin_'.$actor => 'Use um subdomínio do mesmo domínio do ativo, como https://empresa-a.seuapp.com.br.']);
+                    throw ValidationException::withMessages(['origin_'.$actor => 'Use um subdomínio do mesmo domínio do ambiente, como https://empresa-a.seuapp.com.br.']);
                 }
                 $recordPath = $data['path_'.$actor] ?? null;
                 if ($recordPath !== null && (! Scope::path($recordPath) || ! Scope::allows(compact('rules', 'denied'), 'GET', $recordPath))) {
@@ -143,8 +143,8 @@ class ConsoleController extends Controller
         ]);
 
         return back()->with('notice', $localPort !== null
-            ? 'Ativo local cadastrado. O executor acessa a porta '.$localPort.' da sua máquina, sem passar pela internet.'
-            : 'Ativo cadastrado. Publique o código para verificar o domínio.');
+            ? 'Ambiente local cadastrado. O executor acessa a porta '.$localPort.' da sua máquina, sem passar pela internet.'
+            : 'Ambiente cadastrado. Publique o código para verificar o domínio.');
     }
 
     public function verifyTarget(Request $request, Target $target)
@@ -186,8 +186,8 @@ class ConsoleController extends Controller
     public function sessionForm(Request $request)
     {
         $workspace = $this->workspace($request);
-        $provider = $this->agentProvider($workspace);
-        $externalProvider = $this->agentProvider($workspace, true);
+        $engine = $this->engine($workspace);
+        $externalEngine = $this->engine($workspace, true);
         $retest = $request->query('retest');
         $previous = is_string($retest) && Str::isUuid($retest) ? Scan::where('user_id', $request->user()->id)
             ->where('mode', 'external')->where('result', 'exposure')->find($retest) : null;
@@ -197,8 +197,8 @@ class ConsoleController extends Controller
             'targets' => $targets->map(fn (Target $target) => [
                 ...$target->only(['id', 'name', 'origin']), 'comparison' => isset($target->credentials['b']),
             ]),
-            'externalEngine' => $externalProvider ? config('egide.providers.'.$externalProvider) : null,
-            'labEngine' => $provider ? config('egide.providers.'.$provider) : null,
+            'externalEngine' => $externalEngine ? config('egide.providers.'.$externalEngine['provider']) : null,
+            'labEngine' => $engine ? config('egide.providers.'.$engine['provider']) : null,
             'initialAgent' => $request->boolean('agent'),
             'initial' => $request->query('mode', 'laboratory'),
             'previous' => $previous?->only(['id', 'name', 'target_id', 'budget']),
@@ -231,28 +231,33 @@ class ConsoleController extends Controller
         $target = $external ? Target::where('user_id', $request->user()->id)
             ->whereNotNull('verified_at')->findOrFail($data['target_id']) : null;
 
-        $provider = $external ? $this->agentProvider($workspace, true) : 'lab';
-        if ($external && $provider === null) {
-            throw ValidationException::withMessages(['target_id' => 'Configure um provedor de IA antes de explorar um ativo verificado.']);
+        $missing = 'O motor de IA da plataforma ainda não foi configurado pelo administrador.';
+        $engine = $external ? $this->engine($workspace, true) : null;
+        if ($external && $engine === null) {
+            throw ValidationException::withMessages(['target_id' => $missing]);
         }
 
         if (! $external && ! empty($data['agent'])) {
-            $provider = $this->agentProvider($workspace);
-            if ($provider === null) {
-                throw ValidationException::withMessages(['agent' => 'Configure um provedor de IA para executar o laboratório com IA.']);
+            $engine = $this->engine($workspace);
+            if ($engine === null) {
+                throw ValidationException::withMessages(['agent' => $missing]);
             }
         }
+        if ($engine !== null && ! $workspace->demo && ($limit = Engine::limitReached($request->user()))) {
+            throw ValidationException::withMessages(['mode' => $limit]);
+        }
+        $provider = $engine['provider'] ?? 'lab';
 
         $retestOf = $data['retest_of'] ?? null;
         if ($retestOf !== null && (! isset($target->credentials['b']) || ! Scan::where('user_id', $request->user()->id)
             ->where('target_id', $target->id)->where('mode', 'external')->where('status', 'completed')
             ->where('result', 'exposure')->whereKey($retestOf)->exists())) {
-            throw ValidationException::withMessages(['target_id' => 'O reteste exige um achado anterior deste ativo e duas contas de teste.']);
+            throw ValidationException::withMessages(['target_id' => 'O reteste exige um achado anterior deste ambiente e duas contas de teste.']);
         }
 
         if ($external && ! Scope::verify($target)) {
             $target->update(['verified_at' => null]);
-            throw ValidationException::withMessages(['target_id' => 'Renove a verificação do domínio na página Ativos.']);
+            throw ValidationException::withMessages(['target_id' => 'Renove a verificação do domínio na página Ambientes.']);
         }
 
         $variant = $data['mode'] === 'retest' ? 'corrigido' : 'vulneravel';
@@ -268,9 +273,8 @@ class ConsoleController extends Controller
             'denied' => ['/administracao', '/pagamentos'],
         ];
 
-        $local = $provider === 'lab' || isset(Planner::LOCAL[$provider]);
-        $model = $provider === 'claude_local' ? config('egide.claude_model') : ($local ? null : ($workspace->demo ? config('egide.demo_model') : $workspace->model));
-        $engineKey = $local ? null : ($workspace->demo ? config('egide.demo_api_key') : $workspace->api_key);
+        $model = $engine['model'] ?? null;
+        $engineKey = $engine['key'] ?? null;
         $create = fn () => DB::transaction(function () use ($request, $data, $target, $scope, $provider, $model, $engineKey) {
             $scan = Scan::create([
                 'user_id' => $request->user()->id, 'target_id' => $target?->id,
@@ -286,13 +290,24 @@ class ConsoleController extends Controller
 
             return $scan;
         });
-        $scan = ! $workspace->demo ? $create() : Cache::lock('egide-demo-quota', 10)->block(5, function () use ($workspace, $create) {
-            if ($limit = Demo::limitReached($workspace)) {
-                throw ValidationException::withMessages(['mode' => $limit]);
-            }
+        $user = $request->user();
+        $scan = match (true) {
+            $workspace->demo => Cache::lock('egide-demo-quota', 10)->block(5, function () use ($workspace, $create) {
+                if ($limit = Demo::limitReached($workspace)) {
+                    throw ValidationException::withMessages(['mode' => $limit]);
+                }
 
-            return $create();
-        });
+                return $create();
+            }),
+            $engine !== null && ! $user->is_admin => Cache::lock('egide-ai-quota:'.$user->id, 10)->block(5, function () use ($user, $create) {
+                if ($limit = Engine::limitReached($user)) {
+                    throw ValidationException::withMessages(['mode' => $limit]);
+                }
+
+                return $create();
+            }),
+            default => $create(),
+        };
 
         return redirect('/sessoes/'.$scan->id);
     }
@@ -376,11 +391,13 @@ class ConsoleController extends Controller
         $workspace = $this->workspace($request);
 
         return Inertia::render('Settings', [
-            'settings' => $workspace->only(['name', 'accent', 'provider', 'model']),
-            'providers' => collect(config('egide.providers'))->filter(fn ($label, $key) => ! isset(Planner::LOCAL[$key])
-                || in_array($key, Planner::availableLocal(), true))->all(),
-            'local' => array_keys(Planner::LOCAL),
-            'hasKey' => (bool) $workspace->api_key,
+            'settings' => $workspace->only(['name']),
+            'engine' => ($engine = $this->engine($workspace)) ? [
+                'label' => config('egide.providers.'.$engine['provider'], $engine['provider']), 'model' => $engine['model'],
+            ] : null,
+            'usage' => $request->user()->is_admin || $workspace->demo ? null : [
+                'used' => Engine::usedToday($request->user()->id), 'limit' => Platform::current()->ai_daily_limit,
+            ],
             'hasWebhook' => (bool) $workspace->webhook_url,
             'tokens' => ApiToken::where('user_id', $request->user()->id)->latest()->get(['id', 'name', 'prefix', 'last_used_at', 'created_at']),
             'issuedToken' => $request->session()->get('api_token'),
@@ -391,25 +408,11 @@ class ConsoleController extends Controller
     public function saveSettings(Request $request)
     {
         if ($this->workspace($request)->demo) {
-            throw ValidationException::withMessages(['provider' => 'As configurações ficam bloqueadas na demonstração pública. Crie uma conta para usar o seu provedor.']);
+            throw ValidationException::withMessages(['name' => 'As configurações ficam bloqueadas na demonstração pública. Crie uma conta para personalizar o workspace.']);
         }
-        $data = $request->validate([
-            'name' => 'required|string|max:60', 'accent' => 'required|regex:/^#[0-9a-fA-F]{6}$/',
-            'provider' => ['required', Rule::in(array_keys(config('egide.providers')))],
-            'model' => 'nullable|string|max:100|regex:/^[a-zA-Z0-9_.:\/-]+$/',
-            'api_key' => 'nullable|string|max:450',
-        ]);
-        $workspace = $this->workspace($request);
-        $key = $data['api_key'] ?? ($workspace->provider === $data['provider'] ? $workspace->api_key : null);
+        $this->workspace($request)->update($request->validate(['name' => 'required|string|max:60']));
 
-        $local = $data['provider'] === 'lab' || isset(Planner::LOCAL[$data['provider']]);
-        if (! $local && (! $key || empty($data['model']))) {
-            throw ValidationException::withMessages(['api_key' => 'Informe o identificador do modelo e uma chave para esse provedor.']);
-        }
-
-        $workspace->update([...$data, 'api_key' => $local ? null : $key, 'model' => $local ? null : ($data['model'] ?? null)]);
-
-        return back()->with('notice', 'Configurações salvas.');
+        return back()->with('notice', 'Workspace salvo.');
     }
 
     private function state(Scan $scan, bool $full = false): array
@@ -427,19 +430,9 @@ class ConsoleController extends Controller
         return Workspace::firstOrCreate(['user_id' => $request->user()->id], ['name' => $request->user()->name]);
     }
 
-    private function agentProvider(Workspace $workspace, bool $external = false): ?string
+    private function engine(Workspace $workspace, bool $external = false): ?array
     {
-        if ($workspace->demo) {
-            return $external ? null : Demo::provider();
-        }
-        if (isset(Planner::LOCAL[$workspace->provider])) {
-            return Planner::localProvider($external, $workspace->provider);
-        }
-        if ($workspace->provider !== 'lab' && $workspace->api_key && $workspace->model) {
-            return $workspace->provider;
-        }
-
-        return Planner::localProvider($external);
+        return $workspace->demo && $external ? null : Engine::platform($external);
     }
 
     private function owns(Request $request, int $owner): void

@@ -16,7 +16,7 @@ class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'auth' => $user?->only(['name', 'email', 'is_admin']),
-            'workspace' => $workspace?->only(['name', 'accent']),
+            'workspace' => $workspace?->only(['name']),
             'flash' => fn () => $request->session()->get('notice'),
         ];
     }

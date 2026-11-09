@@ -6,7 +6,6 @@ use App\Http\Controllers\AdminController;
 use App\Jobs\RunScan;
 use App\Models\Scan;
 use App\Models\Target;
-use App\Models\Workspace;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -14,18 +13,6 @@ use RuntimeException;
 final class Launcher
 {
     public const TRIGGERS = ['manual', 'schedule', 'api'];
-
-    public static function provider(Workspace $workspace, bool $external = false): ?string
-    {
-        if (isset(Planner::LOCAL[$workspace->provider])) {
-            return Planner::localProvider($external, $workspace->provider);
-        }
-        if ($workspace->provider !== 'lab' && $workspace->api_key && $workspace->model) {
-            return $workspace->provider;
-        }
-
-        return null;
-    }
 
     public function external(Target $target, string $trigger, int $budget = 80): Scan
     {
@@ -36,35 +23,35 @@ final class Launcher
             throw new RuntimeException('Novas sessões estão pausadas pelo administrador da plataforma.');
         }
         if ($target->user?->suspended_at) {
-            throw new RuntimeException('A conta dona deste ativo está suspensa.');
+            throw new RuntimeException('A conta dona deste ambiente está suspensa.');
         }
         if (! $target->verified_at) {
-            throw new RuntimeException('O ativo precisa estar verificado.');
+            throw new RuntimeException('O ambiente precisa estar verificado.');
         }
         if (Scan::where('target_id', $target->id)->whereIn('status', ['queued', 'running'])->exists()) {
-            throw new RuntimeException('Já existe uma sessão em andamento para este ativo.');
+            throw new RuntimeException('Já existe uma sessão em andamento para este ambiente.');
         }
 
-        $workspace = Workspace::firstOrCreate(['user_id' => $target->user_id], ['name' => 'Meu workspace']);
-        $provider = self::provider($workspace, true);
-        if ($provider === null) {
-            throw new RuntimeException('Configure um provedor de IA no workspace.');
+        $engine = Engine::platform(true);
+        if ($engine === null) {
+            throw new RuntimeException('O motor de IA da plataforma ainda não foi configurado pelo administrador.');
+        }
+        if ($target->user && ($limit = Engine::limitReached($target->user))) {
+            throw new RuntimeException($limit);
         }
         if (! Scope::verify($target)) {
             $target->update(['verified_at' => null]);
-            throw new RuntimeException('A verificação do domínio expirou. Renove na página Ativos.');
+            throw new RuntimeException('A verificação do domínio expirou. Renove na página Ambientes.');
         }
 
-        $local = isset(Planner::LOCAL[$provider]);
-
-        return DB::transaction(function () use ($target, $trigger, $budget, $workspace, $provider, $local) {
+        return DB::transaction(function () use ($target, $trigger, $budget, $engine) {
             $scan = Scan::create([
                 'user_id' => $target->user_id, 'target_id' => $target->id, 'name' => $target->name,
                 'mode' => 'external', 'trigger' => $trigger,
                 'scope' => [...Scope::launch($target), 'retest_of' => null],
-                'provider' => $provider,
-                'model' => $provider === 'claude_local' ? config('egide.claude_model') : ($local ? null : $workspace->model),
-                'engine_key' => $local ? null : $workspace->api_key,
+                'provider' => $engine['provider'],
+                'model' => $engine['model'],
+                'engine_key' => $engine['key'],
                 'credentials' => $target->credentials, 'budget' => max(10, min(180, $budget)),
             ]);
             $origin = ['schedule' => 'agendamento', 'api' => 'integração via API', 'manual' => 'console'][$trigger];

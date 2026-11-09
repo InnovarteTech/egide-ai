@@ -121,6 +121,19 @@ final class Planner
         ];
     }
 
+    public function check(string $provider, ?string $model, ?string $key): void
+    {
+        $scan = new Scan(['provider' => $provider, 'model' => $model, 'engine_key' => $key, 'scope' => ['lab' => true]]);
+        $result = $this->decide($scan, 'Teste de conexão. Responda apenas com o JSON pedido, com ok igual a true.', ['teste' => 'conexao'], [
+            'type' => 'object', 'additionalProperties' => false,
+            'properties' => ['ok' => ['type' => 'boolean']],
+            'required' => ['ok'],
+        ]);
+        if (($result['ok'] ?? null) !== true) {
+            throw new RuntimeException('O provedor respondeu, mas fora do formato esperado.');
+        }
+    }
+
     private function decide(Scan $scan, string $instruction, array $observation, array $schema): array
     {
         $input = json_encode($observation, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);

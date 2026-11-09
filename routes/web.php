@@ -19,6 +19,8 @@ Route::middleware(['auth', 'active', 'admin'])->prefix('admin')->group(function 
     Route::get('/', [AdminController::class, 'index']);
     Route::post('/parar-tudo', [AdminController::class, 'stopAll']);
     Route::post('/pausa', [AdminController::class, 'pause']);
+    Route::put('/motor', [AdminController::class, 'saveEngine']);
+    Route::post('/motor/testar', [AdminController::class, 'testEngine'])->middleware('throttle:6,1');
     Route::post('/sessoes/{scan}/encerrar', [AdminController::class, 'stop']);
     Route::post('/usuarios/{user}/suspensao', [AdminController::class, 'suspend']);
 });
@@ -26,9 +28,10 @@ Route::middleware(['auth', 'active', 'admin'])->prefix('admin')->group(function 
 Route::middleware(['auth', 'active'])->group(function (): void {
     Route::post('/sair', [AccessController::class, 'logout']);
     Route::get('/', [ConsoleController::class, 'index']);
-    Route::get('/ativos', [ConsoleController::class, 'assets']);
-    Route::post('/ativos', [ConsoleController::class, 'createTarget'])->middleware('throttle:8,1')->middleware('demo.readonly');
-    Route::post('/ativos/{target}/verificar', [ConsoleController::class, 'verifyTarget'])->middleware('throttle:8,1')->middleware('demo.readonly');
+    Route::permanentRedirect('/ativos', '/ambientes');
+    Route::get('/ambientes', [ConsoleController::class, 'assets']);
+    Route::post('/ambientes', [ConsoleController::class, 'createTarget'])->middleware('throttle:8,1')->middleware('demo.readonly');
+    Route::post('/ambientes/{target}/verificar', [ConsoleController::class, 'verifyTarget'])->middleware('throttle:8,1')->middleware('demo.readonly');
     Route::get('/sessoes', [ConsoleController::class, 'sessions']);
     Route::get('/sessoes/nova', [ConsoleController::class, 'sessionForm']);
     Route::post('/sessoes', [ConsoleController::class, 'createScan'])->middleware('throttle:8,1');
@@ -42,7 +45,7 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::post('/configuracoes/tokens', [IntegrationController::class, 'createToken'])->middleware('throttle:6,1')->middleware('demo.readonly');
     Route::delete('/configuracoes/tokens/{token}', [IntegrationController::class, 'revokeToken'])->middleware('demo.readonly');
     Route::put('/configuracoes/webhook', [IntegrationController::class, 'webhook'])->middleware('throttle:12,1')->middleware('demo.readonly');
-    Route::put('/ativos/{target}/agenda', [IntegrationController::class, 'schedule'])->middleware('throttle:12,1')->middleware('demo.readonly');
+    Route::put('/ambientes/{target}/agenda', [IntegrationController::class, 'schedule'])->middleware('throttle:12,1')->middleware('demo.readonly');
     Route::get('/sentinela', [SentinelController::class, 'index']);
     Route::post('/sentinela', [SentinelController::class, 'store'])->middleware('throttle:8,1')->middleware('demo.readonly');
     Route::get('/sentinela/{monitor}', [SentinelController::class, 'show']);

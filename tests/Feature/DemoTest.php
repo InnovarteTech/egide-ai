@@ -21,16 +21,13 @@ class DemoTest extends TestCase
 
     private function enableDemo(array $overrides = []): void
     {
-        config([
-            'egide.demo_access' => true, 'egide.demo_provider' => 'anthropic',
-            'egide.demo_model' => 'claude-sonnet-5-5', 'egide.demo_api_key' => 'platform-key',
-            'egide.demo_daily_per_user' => 2, 'egide.demo_daily_total' => 100, ...$overrides,
-        ]);
+        config(['egide.demo_access' => true, 'egide.demo_daily_per_user' => 2, 'egide.demo_daily_total' => 100, ...$overrides]);
+        $this->platformEngine('anthropic', 'claude-sonnet-5-5', 'platform-key', 1);
     }
 
     public function test_public_demo_requires_a_configured_platform_engine(): void
     {
-        config(['egide.demo_access' => true, 'egide.demo_api_key' => null]);
+        config(['egide.demo_access' => true]);
         $this->post('/laboratorio/entrar')->assertNotFound();
 
         $this->enableDemo();
@@ -61,8 +58,7 @@ class DemoTest extends TestCase
         $this->post('/laboratorio/entrar');
 
         $this->post('/sessoes', ['mode' => 'external', 'target_id' => 1, 'authorized' => true])->assertSessionHasErrors('mode');
-        $this->put('/configuracoes', ['name' => 'X', 'accent' => '#6435ea', 'provider' => 'anthropic', 'model' => 'x', 'api_key' => 'y'])
-            ->assertSessionHasErrors('provider');
+        $this->put('/configuracoes', ['name' => 'X'])->assertSessionHasErrors('name');
 
         $this->post('/sessoes', ['mode' => 'laboratory', 'agent' => true])->assertSessionHasNoErrors();
         Scan::query()->update(['status' => 'completed']);
@@ -90,7 +86,7 @@ class DemoTest extends TestCase
         $this->enableDemo();
         $this->post('/laboratorio/entrar');
 
-        $this->post('/ativos', ['name' => 'X', 'origin' => 'https://empresa.com', 'entry_path' => '/', 'rules' => 'GET /*'])->assertSessionHas('notice');
+        $this->post('/ambientes', ['name' => 'X', 'origin' => 'https://empresa.com', 'entry_path' => '/', 'rules' => 'GET /*'])->assertSessionHas('notice');
         $this->post('/sentinela', ['name' => 'Monitor'])->assertSessionHas('notice');
         $this->post('/configuracoes/tokens', ['name' => 'CI'])->assertSessionHas('notice');
         $this->put('/configuracoes/webhook', ['webhook_url' => 'https://hooks.example.com/x'])->assertSessionHas('notice');

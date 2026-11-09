@@ -22,7 +22,7 @@ class ScanApiController extends Controller
         $data = $request->validate(['ativo' => 'required|integer', 'orcamento' => 'nullable|integer|min:10|max:180']);
         $target = Target::where('user_id', $request->user()->id)->find($data['ativo']);
         if (! $target) {
-            return response()->json(['error' => 'Ativo não encontrado.'], 404);
+            return response()->json(['error' => 'Ambiente não encontrado.'], 404);
         }
         try {
             $scan = $launcher->external($target, 'api', $data['orcamento'] ?? 80);

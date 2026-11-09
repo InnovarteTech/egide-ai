@@ -44,7 +44,7 @@ bin/egide
 
 O script instala as dependências, gera as chaves, roda as migrações, sobe Redis e os executores e inicia o app em http://127.0.0.1:8187.
 
-O motor de IA é configurado em **Configurações → Motor de IA** (provedor, modelo e chave, guardada criptografada no workspace). Sem chave, o laboratório roda com o roteiro determinístico.
+O motor de IA é único para a plataforma e configurado pelo super admin em **Super admin → Motor de IA** (provedor, modelo, chave criptografada e limite diário de sessões com IA por conta). Sem motor, o laboratório roda com o roteiro determinístico.
 
 ## Produção
 
@@ -54,7 +54,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 Variáveis obrigatórias: `APP_KEY`, `APP_URL`, `DB_PASSWORD` e `EGIDE_RUNNER_TOKEN`.
 
-Demonstração pública: `EGIDE_DEMO_ACCESS=true` e `EGIDE_DEMO_API_KEY`. Contas de demonstração usam só o laboratório, com cota diária por conta, por IP e global, e são apagadas depois de 24 horas.
+Demonstração pública: `EGIDE_DEMO_ACCESS=true` e o motor de IA configurado no Super admin. Contas de demonstração usam só o laboratório, com cota diária por conta, por IP e global, e são apagadas depois de 24 horas.
 
 ## Testes
 

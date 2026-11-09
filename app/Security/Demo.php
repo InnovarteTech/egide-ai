@@ -7,25 +7,6 @@ use App\Models\Workspace;
 
 final class Demo
 {
-    public const API_PROVIDERS = ['anthropic', 'openai', 'openrouter'];
-
-    public static function engineReady(): bool
-    {
-        $provider = config('egide.demo_provider');
-
-        return in_array($provider, self::API_PROVIDERS, true) && filled(config('egide.demo_api_key')) && filled(config('egide.demo_model'));
-    }
-
-    public static function provider(): ?string
-    {
-        $provider = config('egide.demo_provider');
-        if (isset(Planner::LOCAL[$provider])) {
-            return app()->environment('local') ? Planner::localProvider(false, $provider) : null;
-        }
-
-        return self::engineReady() ? $provider : null;
-    }
-
     public static function limitReached(Workspace $workspace): ?string
     {
         $today = now()->startOfDay();

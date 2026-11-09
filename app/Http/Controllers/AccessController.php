@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Security\Demo;
+use App\Security\Engine;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -94,6 +95,6 @@ class AccessController extends Controller
 
     private function demoAvailable(): bool
     {
-        return (bool) config('egide.demo_access') && (app()->environment('local') || Demo::engineReady());
+        return (bool) config('egide.demo_access') && (app()->environment('local') || Engine::platform() !== null);
     }
 }

@@ -91,12 +91,12 @@ class AutomationTest extends TestCase
         $token = $this->token($user);
 
         $this->withToken($token)->postJson('/api/v1/sessoes', ['ativo' => $target->id])
-            ->assertStatus(409)->assertJsonPath('error', 'Configure um provedor de IA no workspace.');
+            ->assertStatus(409)->assertJsonPath('error', 'O motor de IA da plataforma ainda não foi configurado pelo administrador.');
 
-        Workspace::where('user_id', $user->id)->update(['provider' => 'anthropic', 'model' => 'claude-sonnet-5-5', 'api_key' => encrypt('k', false)]);
+        $this->platformEngine();
         $this->scan($target, ['status' => 'running']);
         $this->withToken($token)->postJson('/api/v1/sessoes', ['ativo' => $target->id])
-            ->assertStatus(409)->assertJsonPath('error', 'Já existe uma sessão em andamento para este ativo.');
+            ->assertStatus(409)->assertJsonPath('error', 'Já existe uma sessão em andamento para este ambiente.');
         Queue::assertNotPushed(RunScan::class);
     }
 
@@ -116,10 +116,10 @@ class AutomationTest extends TestCase
     {
         $user = User::factory()->create();
         $pending = $this->target($user, ['verified_at' => null, 'origin' => 'https://pendente.invalid']);
-        $this->actingAs($user)->put('/ativos/'.$pending->id.'/agenda', ['schedule' => 'daily'])->assertSessionHasErrors('schedule');
+        $this->actingAs($user)->put('/ambientes/'.$pending->id.'/agenda', ['schedule' => 'daily'])->assertSessionHasErrors('schedule');
 
         $target = $this->target($user);
-        $this->actingAs($user)->put('/ativos/'.$target->id.'/agenda', ['schedule' => 'weekly'])->assertSessionHasNoErrors();
+        $this->actingAs($user)->put('/ambientes/'.$target->id.'/agenda', ['schedule' => 'weekly'])->assertSessionHasNoErrors();
         $this->assertSame('weekly', $target->fresh()->schedule);
 
         $this->artisan('egide:agendadas')->assertSuccessful();
@@ -180,9 +180,9 @@ class AutomationTest extends TestCase
         $user = User::factory()->create();
         $base = ['name' => 'Local', 'entry_path' => '/', 'rules' => 'GET /'];
 
-        $this->actingAs($user)->post('/ativos', [...$base, 'origin' => 'https://app.local.egide.test', 'local_port' => 8080])
+        $this->actingAs($user)->post('/ambientes', [...$base, 'origin' => 'https://app.local.egide.test', 'local_port' => 8080])
             ->assertSessionHasErrors('local_port');
-        $this->actingAs($user)->post('/ativos', [...$base, 'origin' => 'https://app.local.egide.test'])
+        $this->actingAs($user)->post('/ambientes', [...$base, 'origin' => 'https://app.local.egide.test'])
             ->assertSessionHasErrors('origin');
         $this->assertSame(0, Target::count());
     }
@@ -192,11 +192,11 @@ class AutomationTest extends TestCase
         $user = User::factory()->create();
         $base = ['name' => 'App', 'entry_path' => '/', 'rules' => 'GET /*'];
 
-        $this->actingAs($user)->post('/ativos', [...$base, 'origin' => 'https://app.local.egide.test', 'local_port' => 6379])
+        $this->actingAs($user)->post('/ambientes', [...$base, 'origin' => 'https://app.local.egide.test', 'local_port' => 6379])
             ->assertSessionHasErrors('local_port');
-        $this->actingAs($user)->post('/ativos', [...$base, 'origin' => 'https://staging.empresa.com', 'email_a' => 'a@x.com', 'password_a' => 'x',
+        $this->actingAs($user)->post('/ambientes', [...$base, 'origin' => 'https://staging.empresa.com', 'email_a' => 'a@x.com', 'password_a' => 'x',
             'origin_a' => 'https://conta.local.egide.test'])->assertSessionHasErrors('origin_a');
-        $this->actingAs($user)->post('/ativos', [...$base, 'origin' => 'https://staging.empresa.com',
+        $this->actingAs($user)->post('/ambientes', [...$base, 'origin' => 'https://staging.empresa.com',
             'email_a' => 'a@x.com', 'password_a' => 'x', 'marker_a' => 'ESCOPO-0123456789ABCDEF', 'path_a' => '/api/pedidos/1',
             'email_b' => 'b@x.com', 'password_b' => 'y', 'marker_b' => 'ESCOPO-FEDCBA9876543210', 'path_b' => '/api/pedidos/1',
         ])->assertSessionHasErrors('path_b');

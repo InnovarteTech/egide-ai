@@ -1,6 +1,6 @@
 # Égide AI · produção (Coolify, Docker Compose ou qualquer host com Docker).
 # Variáveis obrigatórias: APP_KEY, APP_URL, DB_PASSWORD, EGIDE_RUNNER_TOKEN.
-# Demonstração pública: EGIDE_DEMO_ACCESS=true e EGIDE_DEMO_API_KEY.
+# Demonstração pública: EGIDE_DEMO_ACCESS=true e o motor de IA configurado no Super admin.
 
 x-app: &app
   image: egide-app:prod
@@ -15,7 +15,7 @@ x-app: &app
     APP_LOCALE: pt_BR
     LOG_CHANNEL: stderr
     DB_CONNECTION: pgsql
-    DB_HOST: db
+    DB_HOST: egide-db
     DB_PORT: 5432
     DB_DATABASE: egide
     DB_USERNAME: egide
@@ -25,7 +25,7 @@ x-app: &app
     CACHE_STORE: database
     QUEUE_CONNECTION: redis
     REDIS_CLIENT: phpredis
-    REDIS_HOST: redis
+    REDIS_HOST: egide-redis
     REDIS_PORT: 6379
     REDIS_QUEUE_RETRY_AFTER: 700
     EGIDE_TRUSTED_PROXIES: ${EGIDE_TRUSTED_PROXIES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
@@ -34,9 +34,6 @@ x-app: &app
     EGIDE_RUNNER_URLS: http://browser-1:8791,http://browser-2:8791,http://browser-3:8791
     EGIDE_WORKERS: ${EGIDE_WORKERS:-3}
     EGIDE_DEMO_ACCESS: ${EGIDE_DEMO_ACCESS:-false}
-    EGIDE_DEMO_PROVIDER: ${EGIDE_DEMO_PROVIDER:-anthropic}
-    EGIDE_DEMO_MODEL: ${EGIDE_DEMO_MODEL:-claude-sonnet-5-5}
-    EGIDE_DEMO_API_KEY: ${EGIDE_DEMO_API_KEY:-}
     EGIDE_DEMO_DAILY_PER_USER: ${EGIDE_DEMO_DAILY_PER_USER:-5}
     EGIDE_DEMO_DAILY_TOTAL: ${EGIDE_DEMO_DAILY_TOTAL:-120}
     EGIDE_ADMIN_EMAIL: ${EGIDE_ADMIN_EMAIL:-admin@egide.test}
@@ -118,6 +115,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    networks:
+      default:
+        aliases: [egide-db]
 
   redis:
     image: redis:7-alpine
@@ -125,6 +125,9 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis:/data
+    networks:
+      default:
+        aliases: [egide-redis]
 
   mailpit:
     image: axllent/mailpit:v1.32.0
