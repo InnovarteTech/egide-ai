@@ -1,0 +1,37 @@
+name: egide
+
+x-browser: &browser
+  image: egide-browser:local
+  pull_policy: never
+  cap_add:
+    - NET_ADMIN
+  shm_size: 256m
+  environment:
+    EGIDE_RUNNER_TOKEN: ${EGIDE_RUNNER_TOKEN:?configure o token do executor no .env}
+    EGIDE_RUNNER_LOCAL: ${EGIDE_RUNNER_LOCAL:-0}
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  volumes:
+    - ./runner:/runner:ro
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6387:6379"
+  mailpit:
+    image: axllent/mailpit:latest
+  browser:
+    <<: *browser
+    build: ./runner
+    pull_policy: build
+    ports:
+      - "127.0.0.1:8791:8791"
+  browser-2:
+    <<: *browser
+    ports:
+      - "127.0.0.1:8793:8791"
+  browser-3:
+    <<: *browser
+    ports:
+      - "127.0.0.1:8794:8791"

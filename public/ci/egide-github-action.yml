@@ -1,0 +1,45 @@
+# .github/workflows/egide.yml
+# Segredos no repositório: EGIDE_TOKEN (token de API da Égide AI).
+# Variáveis: EGIDE_API (ex.: https://app.seu-dominio.com/api/v1) e EGIDE_ATIVO (ID do ativo verificado).
+name: Égide AI · avaliação autorizada
+
+on:
+  workflow_dispatch:
+  deployment_status:
+
+jobs:
+  egide:
+    if: github.event_name == 'workflow_dispatch' || github.event.deployment_status.state == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EGIDE_API: ${{ vars.EGIDE_API }}
+      EGIDE_ATIVO: ${{ vars.EGIDE_ATIVO }}
+      EGIDE_TOKEN: ${{ secrets.EGIDE_TOKEN }}
+      FALHAR_EM: high
+    steps:
+      - name: Disparar sessão
+        id: start
+        run: |
+          resposta=$(curl -sS -f -X POST "$EGIDE_API/sessoes" \
+            -H "Authorization: Bearer $EGIDE_TOKEN" -H "Content-Type: application/json" \
+            -d "{\"ativo\": $EGIDE_ATIVO}")
+          echo "id=$(echo "$resposta" | jq -r .id)" >> "$GITHUB_OUTPUT"
+
+      - name: Aguardar resultado
+        run: |
+          for tentativa in $(seq 1 60); do
+            sessao=$(curl -sS -f "$EGIDE_API/sessoes/${{ steps.start.outputs.id }}" -H "Authorization: Bearer $EGIDE_TOKEN")
+            status=$(echo "$sessao" | jq -r .status)
+            if [ "$status" != "queued" ] && [ "$status" != "running" ]; then break; fi
+            sleep 15
+          done
+          echo "$sessao" | jq .
+          echo "Relatório: $(echo "$sessao" | jq -r .relatorio)" >> "$GITHUB_STEP_SUMMARY"
+          criticos=$(echo "$sessao" | jq '.achados.critical')
+          altos=$(echo "$sessao" | jq '.achados.high')
+          if [ "$status" != "completed" ]; then echo "::error::Sessão não concluída: $(echo "$sessao" | jq -r .erro)"; exit 1; fi
+          if [ "$(echo "$sessao" | jq -r .regressao)" = "true" ]; then echo "::error::Regressão: há achados novos em relação à sessão anterior."; exit 1; fi
+          if [ "$criticos" -gt 0 ] || { [ "$FALHAR_EM" = "high" ] && [ "$altos" -gt 0 ]; }; then
+            echo "::error::Achados graves: $criticos crítico(s), $altos alto(s)."; exit 1
+          fi

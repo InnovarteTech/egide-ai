@@ -1,0 +1,15 @@
+.git
+.env
+.env.*
+!.env.example
+node_modules
+vendor
+public/build
+public/hot
+storage/app/private/*
+storage/framework/*/*
+storage/logs/*
+database/*.sqlite
+*.log
+.phpunit.result.cache
+runner/__pycache__

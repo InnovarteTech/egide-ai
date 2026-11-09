@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")/.."
+php_bin="${EGIDE_PHP:-php}"
+if ! "$php_bin" -v >/dev/null 2>&1; then
+    herd_php="$HOME/Library/Application Support/Herd/bin/php"
+    if [[ -x "$herd_php" ]]; then
+        php_bin="$herd_php"
+        export PATH="$(dirname "$herd_php"):$PATH"
+    fi
+fi
+if [[ ! -f vendor/autoload.php ]]; then
+    composer install --no-interaction
+fi
+if [[ ! -f .env ]]; then
+    cp .env.example .env
+fi
+if ! grep -Eq '^APP_KEY=.+$' .env; then
+    "$php_bin" artisan key:generate --force
+fi
+if ! grep -Eq '^EGIDE_RUNNER_TOKEN=.{32,}$' .env; then
+    "$php_bin" -r '
+        $file = ".env";
+        $config = file_get_contents($file);
+        $value = "EGIDE_RUNNER_TOKEN=".bin2hex(random_bytes(32));
+        file_put_contents($file, preg_match("/^EGIDE_RUNNER_TOKEN=/m", $config)
+            ? preg_replace("/^EGIDE_RUNNER_TOKEN=.*$/m", $value, $config)
+            : $config."\n".$value."\n");
+    '
+fi
+if [[ ! -f database/database.sqlite ]]; then
+    touch database/database.sqlite
+fi
+"$php_bin" artisan migrate --force
+npm ci
+npm run build
+docker compose up -d --build
+"$php_bin" artisan horizon &
+horizon_pid=$!
+trap 'kill "$horizon_pid" 2>/dev/null || true' EXIT
+"$php_bin" artisan serve --host=127.0.0.1 --port=8187

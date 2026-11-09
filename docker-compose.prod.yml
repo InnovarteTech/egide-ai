@@ -1,0 +1,145 @@
+# Égide AI · produção (Coolify, Docker Compose ou qualquer host com Docker).
+# Variáveis obrigatórias: APP_KEY, APP_URL, DB_PASSWORD, EGIDE_RUNNER_TOKEN.
+# Demonstração pública: EGIDE_DEMO_ACCESS=true e EGIDE_DEMO_API_KEY.
+
+x-app: &app
+  image: egide-app:prod
+  pull_policy: never
+  restart: unless-stopped
+  environment: &app-env
+    APP_NAME: "Égide AI"
+    APP_ENV: production
+    APP_DEBUG: "false"
+    APP_KEY: ${APP_KEY:?defina APP_KEY}
+    APP_URL: ${APP_URL:?defina APP_URL}
+    APP_LOCALE: pt_BR
+    LOG_CHANNEL: stderr
+    DB_CONNECTION: pgsql
+    DB_HOST: db
+    DB_PORT: 5432
+    DB_DATABASE: egide
+    DB_USERNAME: egide
+    DB_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD}
+    SESSION_DRIVER: database
+    SESSION_SECURE_COOKIE: ${SESSION_SECURE_COOKIE:-true}
+    CACHE_STORE: database
+    QUEUE_CONNECTION: redis
+    REDIS_CLIENT: phpredis
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    REDIS_QUEUE_RETRY_AFTER: 700
+    EGIDE_TRUSTED_PROXIES: ${EGIDE_TRUSTED_PROXIES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+    MAIL_MAILER: log
+    EGIDE_RUNNER_TOKEN: ${EGIDE_RUNNER_TOKEN:?defina EGIDE_RUNNER_TOKEN}
+    EGIDE_RUNNER_URLS: http://browser-1:8791,http://browser-2:8791,http://browser-3:8791
+    EGIDE_WORKERS: ${EGIDE_WORKERS:-3}
+    EGIDE_DEMO_ACCESS: ${EGIDE_DEMO_ACCESS:-false}
+    EGIDE_DEMO_PROVIDER: ${EGIDE_DEMO_PROVIDER:-anthropic}
+    EGIDE_DEMO_MODEL: ${EGIDE_DEMO_MODEL:-claude-sonnet-5-5}
+    EGIDE_DEMO_API_KEY: ${EGIDE_DEMO_API_KEY:-}
+    EGIDE_DEMO_DAILY_PER_USER: ${EGIDE_DEMO_DAILY_PER_USER:-5}
+    EGIDE_DEMO_DAILY_TOTAL: ${EGIDE_DEMO_DAILY_TOTAL:-120}
+    EGIDE_ADMIN_EMAIL: ${EGIDE_ADMIN_EMAIL:-admin@egide.test}
+    EGIDE_ADMIN_PASSWORD: ${EGIDE_ADMIN_PASSWORD:-}
+    EGIDE_HORIZON_OPERATOR: ${EGIDE_HORIZON_OPERATOR:-}
+  volumes:
+    - storage:/var/www/html/storage
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_started
+
+x-browser: &browser
+  image: egide-browser:prod
+  pull_policy: never
+  restart: unless-stopped
+  cap_add:
+    - NET_ADMIN
+  shm_size: 256m
+  environment:
+    EGIDE_RUNNER_TOKEN: ${EGIDE_RUNNER_TOKEN:?defina EGIDE_RUNNER_TOKEN}
+  healthcheck:
+    test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 8791), 3)"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+
+services:
+  app:
+    <<: *app
+    build: .
+    pull_policy: build
+    environment:
+      <<: *app-env
+      EGIDE_ROLE: app
+      EGIDE_SEED_ADMIN: ${EGIDE_SEED_ADMIN:-true}
+    ports:
+      - "${EGIDE_HTTP_BIND:-127.0.0.1}:${EGIDE_HTTP_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1/up') === false ? 1 : 0);"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  horizon:
+    <<: *app
+    user: www-data
+    environment:
+      <<: *app-env
+      EGIDE_ROLE: worker
+    command: ["php", "artisan", "horizon"]
+    depends_on:
+      app:
+        condition: service_healthy
+
+  scheduler:
+    <<: *app
+    user: www-data
+    environment:
+      <<: *app-env
+      EGIDE_ROLE: worker
+    command: ["php", "artisan", "schedule:work"]
+    depends_on:
+      app:
+        condition: service_healthy
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: egide
+      POSTGRES_USER: egide
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?defina DB_PASSWORD}
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U egide -d egide"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis:/data
+
+  mailpit:
+    image: axllent/mailpit:v1.32.0
+    restart: unless-stopped
+
+  browser-1:
+    <<: *browser
+    build: ./runner
+    pull_policy: build
+  browser-2:
+    <<: *browser
+  browser-3:
+    <<: *browser
+
+volumes:
+  storage:
+  db:
+  redis:
