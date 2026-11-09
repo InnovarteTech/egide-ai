@@ -116,6 +116,27 @@ final class Scope
         return $host === $base || str_ends_with($host, '.'.$parent);
     }
 
+    public static function registrable(string $host): string
+    {
+        $host = strtolower(trim($host, '.'));
+        $labels = explode('.', $host);
+        if (count($labels) <= 2) {
+            return $host;
+        }
+        $lastTwo = implode('.', array_slice($labels, -2));
+        $take = preg_match('/^(?:com|net|org|gov|edu|co|ac|art|blog|eco|ind|inf|med|tec|app|dev)\.[a-z]{2}$/D', $lastTwo) ? 3 : 2;
+
+        return implode('.', array_slice($labels, -$take));
+    }
+
+    public static function dnsDomains(Target $target): array
+    {
+        return array_values(array_unique(array_map(
+            fn ($origin) => self::registrable((string) parse_url($origin, PHP_URL_HOST)),
+            self::origins($target),
+        )));
+    }
+
     public static function origins(Target $target): array
     {
         $origins = array_filter([$target->origin, $target->api_origin]);
@@ -159,13 +180,47 @@ final class Scope
         if ($target->local_port) {
             return self::localEnabled() && ! array_filter(self::origins($target), fn ($origin) => ! self::isLocalOrigin($origin));
         }
-        foreach (self::origins($target) as $origin) {
-            if (! self::verifyOrigin($origin, $target->verification_token)) {
+        $origins = self::origins($target);
+        foreach ($origins as $origin) {
+            if (! self::originVerified($origin, $target->verification_token)) {
                 return false;
             }
         }
 
-        return true;
+        return ! empty($origins);
+    }
+
+    private static function originVerified(string $origin, string $token): bool
+    {
+        $host = (string) parse_url($origin, PHP_URL_HOST);
+
+        return self::dnsHasToken($host, $token)
+            || self::dnsHasToken(self::registrable($host), $token)
+            || self::verifyOrigin($origin, $token);
+    }
+
+    private static function dnsHasToken(string $label, string $token): bool
+    {
+        if (! preg_match('/^[a-z0-9.-]{1,240}$/D', $label)) {
+            return false;
+        }
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $records = @dns_get_record('_egide-verification.'.$label, DNS_TXT);
+            if ($records === false) {
+                usleep(300000);
+
+                continue;
+            }
+            foreach ($records as $record) {
+                if (hash_equals($token, trim((string) ($record['txt'] ?? '')))) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return false;
     }
 
     private static function verifyOrigin(string $origin, string $token): bool

@@ -58,6 +58,11 @@ class ConsoleController extends Controller
             'targets' => Target::where('user_id', $request->user()->id)->latest()->get()->map(fn (Target $target) => [
                 ...$target->toArray(),
                 'verify_urls' => array_map(fn ($origin) => $origin.'/.well-known/egide-verification.txt', Scope::origins($target)),
+                'verify_dns' => array_map(fn ($domain) => [
+                    'domain' => $domain, 'host' => '_egide-verification', 'name' => '_egide-verification.'.$domain,
+                    'value' => $target->verification_token,
+                ], Scope::dnsDomains($target)),
+                'edit' => $this->editData($target),
             ]),
             'localTargets' => Scope::localEnabled(),
         ]);
@@ -65,14 +70,45 @@ class ConsoleController extends Controller
 
     public function createTarget(Request $request)
     {
+        $attrs = $this->buildTarget($request, null);
+        Target::create([
+            'user_id' => $request->user()->id, 'verification_token' => Str::random(48),
+            'verified_at' => $attrs['local_port'] !== null ? now() : null, ...$attrs,
+        ]);
+
+        return back()->with('notice', $attrs['local_port'] !== null
+            ? 'Ambiente local cadastrado. O executor acessa a porta '.$attrs['local_port'].' da sua máquina, sem passar pela internet.'
+            : 'Ambiente cadastrado. Publique o código para verificar o domínio.');
+    }
+
+    public function updateTarget(Request $request, Target $target)
+    {
+        $this->owns($request, $target->user_id);
+        $before = Scope::origins($target);
+        $attrs = $this->buildTarget($request, $target);
+        $after = array_values(array_filter([$attrs['origin'], $attrs['api_origin'],
+            ...array_map(fn ($account) => $account['origin'] ?? null, (array) $attrs['credentials'])]));
+        $reverify = $attrs['local_port'] === null && array_values(array_unique($after)) !== $before;
+        $target->update([
+            ...$attrs,
+            'verified_at' => $attrs['local_port'] !== null ? now() : ($reverify ? null : $target->verified_at),
+        ]);
+
+        return back()->with('notice', $reverify
+            ? 'Ambiente atualizado. O domínio mudou, verifique novamente.'
+            : 'Ambiente atualizado.');
+    }
+
+    private function buildTarget(Request $request, ?Target $existing): array
+    {
         $data = $request->validate([
             'name' => 'required|string|max:100', 'origin' => 'required|string|max:220', 'api_origin' => 'nullable|string|max:220',
             'entry_path' => 'required|string|max:180', 'rules' => 'required|string|max:1600',
             'denied' => 'nullable|string|max:800',
-            'email_a' => 'nullable|string|max:180|required_with:password_a',
-            'password_a' => 'nullable|string|max:200|required_with:email_a',
-            'email_b' => 'nullable|string|max:180|required_with:password_b,marker_a,marker_b',
-            'password_b' => 'nullable|string|max:200|required_with:email_b',
+            'email_a' => 'nullable|string|max:180',
+            'password_a' => 'nullable|string|max:200',
+            'email_b' => 'nullable|string|max:180|required_with:marker_a,marker_b',
+            'password_b' => 'nullable|string|max:200',
             'marker_a' => ['nullable', 'required_with:email_b', 'regex:/^(?:EGIDE|ESCOPO)-[A-F0-9]{16}$/D'],
             'marker_b' => ['nullable', 'required_with:email_b', 'different:marker_a', 'regex:/^(?:EGIDE|ESCOPO)-[A-F0-9]{16}$/D'],
             'origin_a' => 'nullable|string|max:220', 'origin_b' => 'nullable|string|max:220',
@@ -81,6 +117,7 @@ class ConsoleController extends Controller
             'path_a' => 'nullable|string|max:250', 'path_b' => 'nullable|string|max:250',
             'write_test' => 'sometimes|boolean',
         ]);
+        $existingCredentials = (array) ($existing?->credentials ?? []);
         $origin = Scope::origin($data['origin']);
         $localPort = $data['local_port'] ?? null;
         if ($localPort !== null && in_array((int) $localPort, Scope::RESERVED_PORTS, true)) {
@@ -112,7 +149,11 @@ class ConsoleController extends Controller
         if (! Scope::allows(compact('rules', 'denied'), 'GET', $entryPath)) {
             throw ValidationException::withMessages(['rules' => 'Permita GET no caminho de entrada e retire-o dos bloqueios.']);
         }
-        if (Target::where('user_id', $request->user()->id)->where('origin', $origin)->exists()) {
+        $duplicate = Target::where('user_id', $request->user()->id)->where('origin', $origin);
+        if ($existing) {
+            $duplicate->whereKeyNot($existing->id);
+        }
+        if ($duplicate->exists()) {
             throw ValidationException::withMessages(['origin' => 'Este domínio já está cadastrado no workspace.']);
         }
         $credentials = [];
@@ -140,8 +181,16 @@ class ConsoleController extends Controller
                         ? 'Use uma rota GET permitida da API, como /pedidos/123.'
                         : 'Use uma rota GET permitida pelas regras, sem parâmetros, como /api/pedidos/123.']);
                 }
+                $stored = $existingCredentials[$actor] ?? null;
+                $password = $data['password_'.$actor] ?? null;
+                if (($password === null || $password === '') && $stored && strcasecmp($stored['email'] ?? '', $data['email_'.$actor]) === 0) {
+                    $password = $stored['password'] ?? null;
+                }
+                if ($password === null || $password === '') {
+                    throw ValidationException::withMessages(['password_'.$actor => 'Informe a senha da conta de teste '.strtoupper($actor).'.']);
+                }
                 $credentials[$actor] = [
-                    'email' => $data['email_'.$actor], 'password' => $data['password_'.$actor],
+                    'email' => $data['email_'.$actor], 'password' => $password,
                     'marker' => $data['marker_'.$actor] ?? null, 'origin' => $accountOrigin, 'path' => $recordPath,
                 ];
             }
@@ -157,18 +206,47 @@ class ConsoleController extends Controller
             throw ValidationException::withMessages(['path_a' => 'Para testar escrita, informe duas contas e a rota do registro da conta A.']);
         }
 
-        Target::create([
-            'user_id' => $request->user()->id, 'name' => $data['name'], 'write_test' => $writeTest,
-            'origin' => $origin, 'api_origin' => $apiOrigin, 'entry_path' => $entryPath,
-            'verification_token' => Str::random(48), 'rules' => $rules, 'denied' => $denied,
-            'credentials' => $credentials ?: null, 'local_port' => $localPort,
+        return [
+            'name' => $data['name'], 'origin' => $origin, 'api_origin' => $apiOrigin, 'entry_path' => $entryPath,
+            'rules' => $rules, 'denied' => $denied, 'credentials' => $credentials ?: null,
+            'local_port' => $localPort, 'write_test' => $writeTest,
             'record_hint' => isset($data['record_hint']) ? trim($data['record_hint']) : null,
-            'verified_at' => $localPort !== null ? now() : null,
-        ]);
+        ];
+    }
 
-        return back()->with('notice', $localPort !== null
-            ? 'Ambiente local cadastrado. O executor acessa a porta '.$localPort.' da sua máquina, sem passar pela internet.'
-            : 'Ambiente cadastrado. Publique o código para verificar o domínio.');
+    public function deleteTarget(Request $request, Target $target)
+    {
+        $this->owns($request, $target->user_id);
+        Scan::where('target_id', $target->id)->update(['target_id' => null]);
+        $target->delete();
+
+        return back()->with('notice', 'Ambiente removido.');
+    }
+
+    private function editData(Target $target): array
+    {
+        $api = $target->api_origin;
+        $rules = collect($target->rules)->map(fn ($rule) => $rule['method'].' '
+            .($rule['prefix'] ? ($rule['path'] === '/' ? '/*' : $rule['path'].'/*') : $rule['path']))->implode("\n");
+        $accounts = collect(['a', 'b'])->mapWithKeys(function ($actor) use ($target, $api) {
+            $account = $target->credentials[$actor] ?? null;
+            $path = $account['path'] ?? '';
+            if ($api && is_string($path) && str_starts_with($path, $api)) {
+                $path = substr($path, strlen($api));
+            }
+
+            return [$actor => [
+                'email' => $account['email'] ?? '', 'marker' => $account['marker'] ?? '',
+                'origin' => $account['origin'] ?? '', 'path' => $path,
+            ]];
+        })->all();
+
+        return [
+            'name' => $target->name, 'origin' => $target->origin, 'api_origin' => $api ?? '',
+            'entry_path' => $target->entry_path, 'record_hint' => $target->record_hint ?? '',
+            'write_test' => (bool) $target->write_test, 'rules' => $rules,
+            'denied' => implode("\n", (array) $target->denied), 'accounts' => $accounts,
+        ];
     }
 
     public function verifyTarget(Request $request, Target $target)

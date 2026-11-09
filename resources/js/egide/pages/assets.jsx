@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link, useForm, usePage } from '@inertiajs/react';
-import { ArrowLeft, ArrowRight, Check, Copy, Globe2, Info, Laptop, Layers3, LockKeyhole, Plus, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, ChevronRight, Copy, Globe2, Info, Laptop, Layers3, LockKeyhole, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
 import { formatDate, plural } from '../format';
-import { Badge, useTab, Tabs, TabPanel, Dialog, CopyBox, Empty, Field } from '../ui';
+import { Badge, useTab, Tabs, TabPanel, Dialog, ConfirmAction, CopyBox, Empty, Field } from '../ui';
 import { Layout, Heading } from '../layout';
 
 const assetSections = {
@@ -12,13 +12,23 @@ const assetSections = {
 };
 const steps = ['ambiente', 'escopo', 'contas'];
 const newMarker = () => 'EGIDE-' + Array.from(crypto.getRandomValues(new Uint8Array(8)), byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
-const blank = () => ({ name: '', origin: '', api_origin: '', entry_path: '/', rules: 'GET /', denied: '', email_a: '', password_a: '', email_b: '', password_b: '', marker_a: newMarker(), marker_b: newMarker(), origin_a: '', origin_b: '', path_a: '', path_b: '', record_hint: '', local_port: '', write_test: false });
-function AssetDialog({ open, onClose, localTargets }) {
+const blank = target => {
+    if (!target) return { name: '', origin: '', api_origin: '', entry_path: '/', rules: 'GET /', denied: '', email_a: '', password_a: '', email_b: '', password_b: '', marker_a: newMarker(), marker_b: newMarker(), origin_a: '', origin_b: '', path_a: '', path_b: '', record_hint: '', local_port: '', write_test: false };
+    const e = target.edit;
+    return {
+        name: e.name, origin: e.origin, api_origin: e.api_origin, entry_path: e.entry_path, rules: e.rules, denied: e.denied,
+        record_hint: e.record_hint, write_test: e.write_test, local_port: target.local_port ? String(target.local_port) : '',
+        email_a: e.accounts.a.email, password_a: '', marker_a: e.accounts.a.marker || newMarker(), origin_a: e.accounts.a.origin, path_a: e.accounts.a.path,
+        email_b: e.accounts.b.email, password_b: '', marker_b: e.accounts.b.marker || newMarker(), origin_b: e.accounts.b.origin, path_b: e.accounts.b.path,
+    };
+};
+function AssetDialog({ open, onClose, localTargets, target }) {
+    const editing = !!target;
     const [section, setSection] = useState('ambiente');
     const [actor, setActor] = useState('a');
-    const [split, setSplit] = useState(false);
+    const [split, setSplit] = useState(editing ? !!target.edit.api_origin : false);
     const [copied, setCopied] = useState('');
-    const form = useForm(blank());
+    const form = useForm(blank(target));
     const step = steps.indexOf(section);
     const failing = key => assetSections[key].some(field => form.errors[field]);
     const actorFailing = value => ['email_', 'password_', 'marker_', 'origin_', 'path_'].some(field => form.errors[field + value]);
@@ -26,26 +36,31 @@ function AssetDialog({ open, onClose, localTargets }) {
         event.preventDefault();
         if (step < steps.length - 1) { setSection(steps[step + 1]); return; }
         form.transform(data => ({ ...data, api_origin: split ? data.api_origin : '', marker_a: data.email_b ? data.marker_a : '', marker_b: data.email_b ? data.marker_b : '', write_test: data.email_b && data.path_a ? data.write_test : false }));
-        form.post('/ambientes', {
-            preserveScroll: true, preserveState: true,
-            onSuccess: () => { form.setData(blank()); form.clearErrors(); setSplit(false); setSection('ambiente'); onClose(); },
-            onError: errors => {
-                const first = steps.find(key => assetSections[key].some(field => errors[field]));
-                if (first) setSection(first);
-                if (first === 'contas') setActor(['a', 'b'].find(value => Object.keys(errors).some(field => field.endsWith('_' + value))) ?? 'a');
-            },
-        });
+        const onError = errors => {
+            const first = steps.find(key => assetSections[key].some(field => errors[field]));
+            if (first) setSection(first);
+            if (first === 'contas') setActor(['a', 'b'].find(value => Object.keys(errors).some(field => field.endsWith('_' + value))) ?? 'a');
+        };
+        if (editing) {
+            form.put('/ambientes/' + target.id, { preserveScroll: true, preserveState: true, onSuccess: () => onClose(), onError });
+        } else {
+            form.post('/ambientes', {
+                preserveScroll: true, preserveState: true,
+                onSuccess: () => { form.setData(blank()); form.clearErrors(); setSplit(false); setSection('ambiente'); onClose(); },
+                onError,
+            });
+        }
     };
     const input = (field, props = {}) => <input autoComplete="off" value={form.data[field]} onChange={e => form.setData(field, e.target.value)} {...props} />;
     const close = () => { form.reset('password_a', 'password_b'); onClose(); };
     const copy = value => { navigator.clipboard?.writeText(value).then(() => { setCopied(value); setTimeout(() => setCopied(''), 1600); }).catch(() => {}); };
     const markerField = 'marker_' + actor;
-    return <Dialog open={open} onClose={close} locked={form.processing} title="Adicionar ambiente" description="Três passos: o app, o que o agente pode acessar e as contas de teste." size="dialog-lg" footer={<>
+    return <Dialog open={open} onClose={close} locked={form.processing} title={editing ? 'Editar ambiente' : 'Adicionar ambiente'} description="Três passos: o app, o que o agente pode acessar e as contas de teste." size="dialog-lg" footer={<>
         {step > 0
             ? <button type="button" className="button secondary" onClick={() => setSection(steps[step - 1])}><ArrowLeft size={16} /> Voltar</button>
             : <button type="button" className="button secondary" onClick={close}>Cancelar</button>}
         <button type="submit" form="asset-form" className="button primary" disabled={form.processing}>
-            {step < steps.length - 1 ? <>Próximo <ArrowRight size={17} /></> : form.processing ? 'Cadastrando…' : <>Cadastrar ambiente <Check size={17} /></>}
+            {step < steps.length - 1 ? <>Próximo <ArrowRight size={17} /></> : form.processing ? 'Salvando…' : <>{editing ? 'Salvar ambiente' : 'Cadastrar ambiente'} <Check size={17} /></>}
         </button>
     </>}>
         <Tabs name="ativo" label="Etapas do cadastro" value={section} onChange={setSection} className="dialog-tabs" tabs={[
@@ -88,7 +103,7 @@ function AssetDialog({ open, onClose, localTargets }) {
                 <div className="actor-fields" key={actor}>
                     <div className="fields-two">
                         <Field label="Login" error={form.errors['email_' + actor]}>{input('email_' + actor)}</Field>
-                        <Field label="Senha" error={form.errors['password_' + actor]}><input type="password" autoComplete="new-password" value={form.data['password_' + actor]} onChange={e => form.setData('password_' + actor, e.target.value)} /></Field>
+                        <Field label="Senha" error={form.errors['password_' + actor]}><input type="password" autoComplete="new-password" placeholder={editing ? 'manter atual' : ''} value={form.data['password_' + actor]} onChange={e => form.setData('password_' + actor, e.target.value)} /></Field>
                     </div>
                     <div className="marker-row">
                         <Field label="Marcador do registro" error={form.errors[markerField]} help="Use este texto como nome de um registro só desta conta.">{input(markerField, { className: 'mono-input', placeholder: 'EGIDE-0123456789ABCDEF' })}</Field>
@@ -114,6 +129,7 @@ function AssetDialog({ open, onClose, localTargets }) {
 }
 export function Assets({ targets, localTargets }) {
     const [adding, setAdding] = useState(false);
+    const [editing, setEditing] = useState(null);
     const [tab, setTab] = useTab('aba', 'ambientes', ['ambientes', 'local']);
     const { errors } = usePage().props;
     const pending = targets.filter(target => !target.verified_at).length;
@@ -130,7 +146,7 @@ export function Assets({ targets, localTargets }) {
             <section className="panel">
                 <div className="panel-header"><div><h2>Ambientes cadastrados</h2><p>{pending ? plural(pending, 'aguardando verificação', 'aguardando verificação') : 'Todos verificados'}</p></div></div>
                 {!targets.length && <Empty icon={Layers3} title="Nenhum ambiente cadastrado" action={<button type="button" className="text-link" onClick={() => setAdding(true)}>Adicionar primeiro ambiente <ArrowRight size={16} /></button>}>Adicione e verifique um ambiente para iniciar uma exploração externa.</Empty>}
-                <ul className="asset-list">{targets.map(target => <AssetRow key={target.id} target={target} />)}</ul>
+                <ul className="asset-list">{targets.map(target => <AssetRow key={target.id} target={target} onEdit={() => setEditing(target)} />)}</ul>
             </section>
         </TabPanel>}
         {tab === 'local' && <TabPanel name="ativos" id="local">
@@ -151,9 +167,10 @@ export function Assets({ targets, localTargets }) {
             </section>
         </TabPanel>}
         <AssetDialog open={adding} onClose={() => setAdding(false)} localTargets={localTargets} />
+        {editing && <AssetDialog key={editing.id} open target={editing} onClose={() => setEditing(null)} localTargets={localTargets} />}
     </Layout>;
 }
-function AssetRow({ target }) {
+function AssetRow({ target, onEdit }) {
     const schedule = target.schedule ?? 'off';
     return <li className="asset-row">
         <div className="asset-head">
@@ -164,6 +181,10 @@ function AssetRow({ target }) {
                 {target.write_test && <Badge tone="amber">Escrita</Badge>}
                 <Badge tone={target.verified_at ? 'green' : 'neutral'}>{target.verified_at ? 'Verificado' : 'Pendente'}</Badge>
             </div>
+            <div className="asset-actions">
+                <button type="button" className="icon-button" title="Editar ambiente" aria-label="Editar ambiente" onClick={onEdit}><Pencil size={16} /></button>
+                <ConfirmAction href={'/ambientes/' + target.id} method="delete" title={'Remover ' + target.name + '?'} description="O ambiente e as regras saem do workspace. As sessões já feitas continuam no histórico." confirmLabel="Remover ambiente" className="icon-button"><Trash2 size={16} /></ConfirmAction>
+            </div>
         </div>
         {target.verified_at ? <div className="asset-foot">
             <span className="asset-label">Reteste automático</span>
@@ -172,10 +193,22 @@ function AssetRow({ target }) {
             </div>
             {target.next_run_at && <span className="asset-next"><RefreshCw size={13} /> {formatDate(target.next_run_at)}</span>}
         </div> : <div className="asset-verify">
-            <p>{target.verify_urls?.length > 1 ? 'Publique este código nos endereços abaixo e confirme.' : <>Publique este código em <code>/.well-known/egide-verification.txt</code> e confirme.</>}</p>
-            {target.verify_urls?.length > 1 && <ul className="verify-urls">{target.verify_urls.map(url => <li key={url} className="mono">{url}</li>)}</ul>}
+            <div className="verify-head"><strong>Verificar por DNS</strong><Badge tone="violet">Recomendado</Badge></div>
+            <p>Adicione {target.verify_dns?.length > 1 ? 'os registros TXT abaixo' : 'este registro TXT'} no DNS do seu domínio. Prova o domínio inteiro de uma vez, cobrindo front, API e contas.</p>
+            {(target.verify_dns ?? []).map(record => <div key={record.domain} className="dns-record">
+                <div className="dns-field"><span className="dns-key">Tipo</span><span className="mono dns-val">TXT</span></div>
+                <div className="dns-field"><span className="dns-key">Nome</span><span className="mono dns-val">{record.host}</span><small>no domínio {record.domain}</small></div>
+                <div className="dns-field dns-value"><span className="dns-key">Valor</span><CopyBox value={record.value} /></div>
+            </div>)}
+            <details className="disclosure verify-file">
+                <summary><ChevronRight size={15} />ou verificar por arquivo</summary>
+                <div className="disclosure-body">
+                    <p>Publique este código em <code>/.well-known/egide-verification.txt</code>{target.verify_urls?.length > 1 ? ' em cada endereço:' : ':'}</p>
+                    {target.verify_urls?.length > 1 && <ul className="verify-urls">{target.verify_urls.map(url => <li key={url} className="mono">{url}</li>)}</ul>}
+                    <CopyBox value={target.verification_token} />
+                </div>
+            </details>
             <div className="asset-verify-actions">
-                <CopyBox value={target.verification_token} />
                 <Link href={'/ambientes/' + target.id + '/verificar'} method="post" as="button" className="button primary compact"><ShieldCheck size={16} /> Verificar domínio</Link>
             </div>
         </div>}

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Scan;
 use App\Models\Target;
 use App\Models\User;
 use App\Security\Scope;
@@ -86,5 +87,70 @@ class ApiOriginTest extends TestCase
 
         $target->update(['write_test' => false]);
         $this->assertNull(Scope::launch($target)['write']);
+    }
+
+    public function test_registrable_domain_and_dns_verification_payload(): void
+    {
+        $this->assertSame('innovartetech.com.br', Scope::registrable('chiquinhosociety.innovartetech.com.br'));
+        $this->assertSame('innovartetech.com.br', Scope::registrable('apiarenasmais.innovartetech.com.br'));
+        $this->assertSame('example.com', Scope::registrable('api.staging.example.com'));
+        $this->assertSame('example.com', Scope::registrable('example.com'));
+        $this->assertSame('b.co.uk', Scope::registrable('a.b.co.uk'));
+
+        $user = User::factory()->create();
+        $this->actingAs($user)->post('/ambientes', $this->environment([
+            'origin' => 'https://chiquinhosociety.innovartetech.com.br',
+            'api_origin' => 'https://apiarenasmais.innovartetech.com.br',
+            'path_a' => 'https://apiarenasmais.innovartetech.com.br/bookings/12',
+        ]))->assertSessionHasNoErrors();
+        $target = Target::sole();
+
+        $this->assertSame(['innovartetech.com.br'], Scope::dnsDomains($target));
+        $this->get('/ambientes')->assertInertia(fn ($page) => $page->component('Assets', false)
+            ->where('targets.0.verify_dns', [[
+                'domain' => 'innovartetech.com.br', 'host' => '_egide-verification',
+                'name' => '_egide-verification.innovartetech.com.br', 'value' => $target->verification_token,
+            ]]));
+    }
+
+    public function test_environment_update_preserves_token_and_password_and_delete_detaches_scans(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user)->post('/ambientes', $this->environment())->assertSessionHasNoErrors();
+        $target = Target::sole();
+        $token = $target->verification_token;
+        $target->update(['verified_at' => now()]);
+        $originalPassword = $target->credentials['a']['password'];
+
+        // edit name + keep passwords blank (same emails) -> passwords preserved, token kept, stays verified (same origins)
+        $this->put('/ambientes/'.$target->id, $this->environment([
+            'name' => 'Arena+ renomeado', 'password_a' => '', 'password_b' => '',
+        ]))->assertSessionHasNoErrors();
+        $target->refresh();
+        $this->assertSame('Arena+ renomeado', $target->name);
+        $this->assertSame($token, $target->verification_token);
+        $this->assertSame($originalPassword, $target->credentials['a']['password']);
+        $this->assertNotNull($target->verified_at);
+
+        // change the app origin -> must re-verify (verified_at cleared), token still kept
+        $this->put('/ambientes/'.$target->id, $this->environment([
+            'name' => 'Arena+ renomeado', 'origin' => 'https://outra.example.com', 'password_a' => '', 'password_b' => '',
+        ]))->assertSessionHasNoErrors();
+        $target->refresh();
+        $this->assertNull($target->verified_at);
+        $this->assertSame($token, $target->verification_token);
+
+        // another user cannot edit or delete
+        $this->actingAs(User::factory()->create())->put('/ambientes/'.$target->id, $this->environment())->assertNotFound();
+        $this->delete('/ambientes/'.$target->id)->assertNotFound();
+
+        // owner deletes -> target gone, its scan detached (kept in history)
+        $scan = Scan::create([
+            'user_id' => $user->id, 'target_id' => $target->id, 'name' => 'Sessão', 'mode' => 'external',
+            'scope' => [], 'status' => 'completed',
+        ]);
+        $this->actingAs($user)->delete('/ambientes/'.$target->id)->assertRedirect();
+        $this->assertDatabaseCount('targets', 0);
+        $this->assertNull($scan->fresh()->target_id);
     }
 }

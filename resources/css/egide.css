@@ -597,3 +597,16 @@ code.request{font-size:.78rem;overflow-wrap:anywhere;color:#2d2340}
 @media(max-width:700px){.marker-row{grid-template-columns:1fr;gap:0}.marker-actions{padding-top:0;margin:-6px 0 14px}}
 .field>.segmented,.form-stack>.segmented{justify-self:start}
 .badge.amber{color:#9a5b12;background:#fdf0dc}
+.verify-head{display:flex;align-items:center;gap:9px;margin-bottom:4px}
+.verify-head strong{font-size:.95rem}
+.dns-record{display:grid;gap:8px;padding:13px;margin:10px 0;border:1px solid var(--line);border-radius:12px;background:#faf9fd}
+.dns-field{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-width:0}
+.dns-field.dns-value{align-items:stretch;flex-direction:column;gap:6px}
+.dns-key{font-family:var(--mono);font-size:.64rem;letter-spacing:.08em;text-transform:uppercase;color:#645a76;font-weight:700;width:52px;flex:none}
+.dns-val{font-size:.85rem;overflow-wrap:anywhere}
+.dns-field small{color:var(--muted);font-size:.76rem}
+.verify-file{margin:6px 0 2px}
+.verify-file .disclosure-body p{margin:0 0 8px}
+.asset-actions{display:flex;gap:4px;align-items:center;flex:none}
+.asset-head{align-items:center}
+@media(max-width:700px){.asset-actions{margin-left:auto}}

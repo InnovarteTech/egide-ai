@@ -31,6 +31,8 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::permanentRedirect('/ativos', '/ambientes');
     Route::get('/ambientes', [ConsoleController::class, 'assets']);
     Route::post('/ambientes', [ConsoleController::class, 'createTarget'])->middleware('throttle:8,1')->middleware('demo.readonly');
+    Route::put('/ambientes/{target}', [ConsoleController::class, 'updateTarget'])->middleware('throttle:8,1')->middleware('demo.readonly');
+    Route::delete('/ambientes/{target}', [ConsoleController::class, 'deleteTarget'])->middleware('throttle:8,1')->middleware('demo.readonly');
     Route::post('/ambientes/{target}/verificar', [ConsoleController::class, 'verifyTarget'])->middleware('throttle:8,1')->middleware('demo.readonly');
     Route::get('/sessoes', [ConsoleController::class, 'sessions']);
     Route::get('/sessoes/nova', [ConsoleController::class, 'sessionForm']);
