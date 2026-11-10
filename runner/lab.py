@@ -5,6 +5,7 @@ import json
 import re
 import secrets
 import smtplib
+import time
 from email.message import EmailMessage
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
@@ -263,8 +264,19 @@ document.getElementById("exportar").onclick = async () => {{
             message["To"] = email
             message["Subject"] = "Confirme sua conta no laboratório"
             message.set_content(f"{ORIGIN}/{variant}/confirmar/{token}")
-            with smtplib.SMTP("mailpit", 1025, timeout=5) as mail:
-                mail.send_message(message)
+            last = None
+            for attempt in range(4):
+                try:
+                    with smtplib.SMTP("mailpit", 1025, timeout=20) as mail:
+                        mail.send_message(message)
+                    last = None
+                    break
+                except OSError as error:
+                    last = error
+                    time.sleep(0.5 * (attempt + 1))
+            if last is not None:
+                self.reply(page("<h1>Falha temporária ao enviar o e-mail de teste</h1>"), 503)
+                return
             self.reply(page(f"<h1>Confirme seu e-mail</h1><p>Mensagem de teste enviada para {html.escape(email)}.</p>"))
             return
         account = accounts.get(email)
