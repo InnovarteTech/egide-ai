@@ -48,7 +48,7 @@ final class Launcher
             $scan = Scan::create([
                 'user_id' => $target->user_id, 'target_id' => $target->id, 'name' => $target->name,
                 'mode' => 'external', 'trigger' => $trigger,
-                'scope' => [...Scope::launch($target), 'retest_of' => null],
+                'scope' => [...Scope::launch($target), 'retest_of' => null, 'nav_model' => $engine['nav_model'] ?? null],
                 'provider' => $engine['provider'],
                 'model' => $engine['model'],
                 'engine_key' => $engine['key'],

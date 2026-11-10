@@ -41,6 +41,90 @@ final class Planner
         return array_values(array_filter(array_keys(self::LOCAL), fn ($provider) => self::localAvailable(false, self::LOCAL[$provider])));
     }
 
+    public static function modelFor(Scan $scan, string $role): ?string
+    {
+        if ($role === 'navigator') {
+            return $scan->scope['nav_model'] ?? $scan->model;
+        }
+
+        return $scan->model;
+    }
+
+    public static function baseline(array $endpoint): array
+    {
+        $points = [];
+        $path = $endpoint['path'] ?? '/';
+        if (preg_match('~/(\{id\}|\d+)(?=/|$)~', $path)) {
+            $points[] = ['class' => 'idor', 'point' => 'path', 'key' => 'id'];
+        }
+        foreach ($endpoint['params'] ?? [] as $param) {
+            $points[] = ['class' => 'xss', 'point' => 'query', 'key' => $param];
+            $points[] = ['class' => 'sqli_time', 'point' => 'query', 'key' => $param];
+            if (preg_match('~url|uri|link|dest|callback|webhook|redirect|next|feed|proxy~i', (string) $param)) {
+                $points[] = ['class' => 'ssrf', 'point' => 'query', 'key' => $param];
+            }
+        }
+        foreach ($endpoint['body'] ?? [] as $field) {
+            $points[] = ['class' => 'xss', 'point' => 'body', 'key' => $field];
+            $points[] = ['class' => 'sqli_time', 'point' => 'body', 'key' => $field];
+        }
+        if (preg_match('~/(auth|login|entrar|session|token|oauth)~i', $path)) {
+            $points[] = ['class' => 'rate', 'point' => 'path', 'key' => null];
+            $points[] = ['class' => 'jwt', 'point' => 'path', 'key' => null];
+        }
+
+        return $points;
+    }
+
+    public static function mergePlan(array $baseline, array $ai): array
+    {
+        $seen = [];
+        $out = [];
+        foreach ([...$baseline, ...$ai] as $point) {
+            if (! isset($point['class'], $point['point'])) {
+                continue;
+            }
+            $key = $point['key'] ?? null;
+            $signature = $point['class'].'|'.$point['point'].'|'.($key ?? '');
+            if (isset($seen[$signature])) {
+                continue;
+            }
+            $seen[$signature] = true;
+            $out[] = ['class' => $point['class'], 'point' => $point['point'], 'key' => $key];
+        }
+
+        return $out;
+    }
+
+    public function attackPlan(Scan $scan, array $endpoint): array
+    {
+        $baseline = self::baseline($endpoint);
+        $schema = [
+            'type' => 'object', 'additionalProperties' => false,
+            'properties' => ['points' => ['type' => 'array', 'items' => [
+                'type' => 'object', 'additionalProperties' => false,
+                'properties' => [
+                    'class' => ['type' => 'string', 'enum' => ['xss', 'sqli_time', 'ssrf', 'idor', 'rate', 'jwt']],
+                    'point' => ['type' => 'string', 'enum' => ['query', 'path', 'body']],
+                    'key' => ['type' => ['string', 'null']],
+                ],
+                'required' => ['class', 'point'],
+            ]]],
+            'required' => ['points'],
+        ];
+        $instruction = 'Você é um pentester escolhendo vetores de ataque para UM endpoint de uma aplicação autorizada. '
+            .'Dado o método, caminho, parâmetros e campos de corpo, proponha testes adicionais de injeção/autorização que façam sentido para ESTE endpoint. '
+            .'Use só as classes do schema. Não invente parâmetros fora dos informados. Não proponha ações destrutivas.';
+        try {
+            $ai = $this->decide($scan, $instruction, ['endpoint' => $endpoint], $schema);
+            $points = is_array($ai['points'] ?? null) ? $ai['points'] : [];
+        } catch (\Throwable) {
+            $points = [];
+        }
+
+        return self::mergePlan($baseline, $points);
+    }
+
     public function select(Scan $scan, string $instruction, array $observation, array $choices): array
     {
         $schema = [
@@ -54,7 +138,7 @@ final class Planner
                 fn ($id, $choice) => ['id' => $id, 'type' => $choice['kind'], 'description' => $choice['label']],
                 array_keys($choices), $choices,
             ),
-        ], $schema);
+        ], $schema, 'navigator');
 
         $choice = $decision['choice'] ?? null;
         if (! is_int($choice) || ! isset($choices[$choice])) {
@@ -80,7 +164,7 @@ final class Planner
             ],
             'required' => ['action', 'control', 'label'],
         ];
-        $action = $this->decide($scan, $instruction, $observation, $schema);
+        $action = $this->decide($scan, $instruction, $observation, $schema, 'navigator');
         if (! in_array($action['action'] ?? null, $schema['properties']['action']['enum'], true)
             || ! is_int($action['control'] ?? null)) {
             throw new RuntimeException('O provedor não devolveu uma ação válida para esta sessão.');
@@ -134,7 +218,7 @@ final class Planner
         }
     }
 
-    private function decide(Scan $scan, string $instruction, array $observation, array $schema): array
+    private function decide(Scan $scan, string $instruction, array $observation, array $schema, string $role = 'strategist'): array
     {
         $input = json_encode($observation, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
         if ($scan->provider === 'codex') {
@@ -144,7 +228,7 @@ final class Planner
             return $this->claudeLocal($scan, $instruction, $input, $schema);
         }
 
-        $model = $scan->model;
+        $model = self::modelFor($scan, $role);
         $http = Http::connectTimeout(5)->timeout(25)->acceptJson()->withoutRedirecting();
 
         [$response, $outputPath] = match ($scan->provider) {

@@ -7,6 +7,7 @@ use App\Models\Platform;
 use App\Models\Scan;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Security\Engine;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -24,6 +25,38 @@ class PlatformEngineTest extends TestCase
         $admin->forceFill(['is_admin' => true])->save();
 
         return $admin;
+    }
+
+    public function test_engine_exposes_navigator_and_strategist_models(): void
+    {
+        Platform::current()->update([
+            'ai_provider' => 'anthropic', 'ai_model' => 'claude-sonnet-5-5',
+            'ai_nav_model' => 'claude-haiku-5-5', 'ai_key' => 'sk-ant-x',
+        ]);
+        $engine = Engine::platform();
+        $this->assertSame('claude-sonnet-5-5', $engine['model']);
+        $this->assertSame('claude-haiku-5-5', $engine['nav_model']);
+
+        Platform::current()->update(['ai_nav_model' => null]);
+        $this->assertNull(Engine::platform()['nav_model']);
+    }
+
+    public function test_admin_saves_both_models_and_checks_connection(): void
+    {
+        $admin = $this->admin();
+        $this->actingAs($admin)->put('/admin/motor', [
+            'provider' => 'anthropic', 'model' => 'claude-sonnet-5-5', 'nav_model' => 'claude-haiku-5-5',
+            'api_key' => 'sk-ant-secret-key-1234', 'daily_limit' => 5,
+        ])->assertSessionHasNoErrors();
+        $this->assertSame('claude-haiku-5-5', Platform::current()->ai_nav_model);
+
+        Http::fake(['api.anthropic.com/v1/messages' => Http::sequence()
+            ->push(['stop_reason' => 'end_turn', 'content' => [['type' => 'text', 'text' => '{"ok":true}']]])
+            ->push(['stop_reason' => 'end_turn', 'content' => [['type' => 'text', 'text' => '{"ok":true}']]])]);
+        $this->actingAs($admin)->post('/admin/motor/testar', [
+            'provider' => 'anthropic', 'model' => 'claude-sonnet-5-5', 'nav_model' => 'claude-haiku-5-5', 'api_key' => 'test-key',
+        ])->assertSessionHasNoErrors();
+        Http::assertSent(fn ($request) => str_contains((string) $request->body(), 'claude-haiku-5-5'));
     }
 
     public function test_only_admins_configure_the_engine_and_the_key_is_never_exposed(): void

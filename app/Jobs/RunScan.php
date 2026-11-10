@@ -5,7 +5,10 @@ namespace App\Jobs;
 use App\Models\CollaboratorHit;
 use App\Models\Scan;
 use App\Models\Workspace;
+use App\Security\AgenticRun;
 use App\Security\Checks;
+use App\Security\EndpointMap;
+use App\Security\Payloads;
 use App\Security\Planner;
 use App\Security\Scope;
 use Illuminate\Contracts\Cache\Lock;
@@ -32,6 +35,12 @@ class RunScan implements ShouldQueue
 
     private array $endpoints = [];
 
+    private array $inventory = [];
+
+    private int $probeIndex = 0;
+
+    private ?string $jwtToken = null;
+
     private int $allowed = 0;
 
     private int $blocked = 0;
@@ -52,6 +61,135 @@ class RunScan implements ShouldQueue
     private function aggressiveAllowed(): bool
     {
         return ($this->scan->scope['lab'] ?? false) || ($this->scan->scope['env_type'] ?? null) === 'test';
+    }
+
+    private function singleAggressivePass(): bool
+    {
+        return empty($this->scan->credentials['b']) && $this->aggressiveAllowed();
+    }
+
+    private function destructiveRoute(string $route): bool
+    {
+        return AgenticRun::destructive($route);
+    }
+
+    private function agenticBattery(Planner $planner): void
+    {
+        if (! $this->aggressiveAllowed()) {
+            return;
+        }
+        $run = new AgenticRun($this->scan->scope);
+        $budget = AgenticRun::budget($this->scan);
+        $spent = ['endpoints' => 0, 'strategist_calls' => 0];
+        $callback = $this->callbackToken();
+        $this->scan->update(['phase' => 'Varredura agêntica']);
+        $this->scan->event('test', 'Varredura agêntica de vulnerabilidades', 'A IA planeja e injeta ataques adaptados por endpoint; cada achado é confirmado por oráculo determinístico.');
+        foreach (AgenticRun::selectTargets($this->inventory, $budget['max_endpoints']) as $endpoint) {
+            $this->checkStop();
+            if (! AgenticRun::withinBudget($spent, $budget)) {
+                break;
+            }
+            if (! $run->shouldProbe($endpoint['path'])) {
+                continue;
+            }
+            $spent['endpoints']++;
+            $plan = $planner->attackPlan($this->scan, $endpoint);
+            $spent['strategist_calls']++;
+            foreach ($plan as $point) {
+                if (! in_array($point['class'], ['xss', 'sqli_time', 'ssrf'], true)) {
+                    continue;
+                }
+                $this->softCheck('Varredura '.$point['class'].' '.$point['point'], fn () => $this->probePoint($endpoint, $point, $callback, $budget['max_payloads_per_point']));
+            }
+        }
+        $this->authBattery();
+    }
+
+    private function authBattery(): void
+    {
+        foreach (AgenticRun::authChecks($this->inventory, $this->jwtToken) as $check) {
+            $this->checkStop();
+            if ($check['check'] === 'jwt') {
+                $this->softCheck('JWT', function () use ($check) {
+                    $assessment = $this->jwtAssess($check['token']);
+                    $this->cover('AuthCheck · JWT fraco', '(token de sessão)', $assessment['verdict']);
+                    if ($assessment['finding']) {
+                        $this->scan->findings()->create($assessment['finding']);
+                        $this->scan->event('finding', $assessment['finding']['title'], 'Token JWT observado com fraqueza.', $assessment['finding']['evidence']);
+                    }
+                });
+
+                continue;
+            }
+            $this->softCheck('Limite de login', function () use ($check) {
+                if (! $this->inScope($check['path'])) {
+                    return;
+                }
+                $statuses = [];
+                for ($i = 0; $i < 8; $i++) {
+                    $this->checkStop();
+                    $probe = $this->runner('/probe', ['path' => $check['path'], 'markers' => []]);
+                    $this->observe();
+                    $statuses[] = (int) ($probe['status'] ?? 0);
+                }
+                $assessment = $this->authRateAssess($check['path'], $statuses);
+                $this->cover('AuthCheck · sem limite de tentativas', $check['path'], $assessment['verdict']);
+                if ($assessment['finding']) {
+                    $this->scan->findings()->create($assessment['finding']);
+                    $this->scan->event('finding', 'Login sem limite de tentativas', "A rota {$check['path']} aceitou várias tentativas sem bloquear.", $assessment['finding']['evidence']);
+                }
+            });
+        }
+    }
+
+    private function probePoint(array $endpoint, array $point, array $callback, int $maxPayloads = 6): void
+    {
+        $path = $endpoint['path'];
+        if (! $this->inScope($path)) {
+            return;
+        }
+        foreach (array_slice(Payloads::for($point['class'], $point['point'], ['context' => 'html']), 0, max(1, $maxPayloads)) as $payload) {
+            $this->checkStop();
+            $inject = fn ($value) => ['point' => $point['point'], 'key' => $point['key'], 'value' => $value];
+            if ($point['class'] === 'sqli_time') {
+                $base = $this->runner('/probe', ['path' => $path, 'inject' => $inject('1'), 'markers' => []]);
+                $this->observe();
+                $slow = $this->runner('/probe', ['path' => $path, 'inject' => $inject($payload['value']), 'markers' => []]);
+                $this->observe();
+                $assessment = $this->injectionTimeAssess($path, (float) ($base['elapsed'] ?? 0), (float) ($slow['elapsed'] ?? 0), (int) ($slow['status'] ?? 200));
+                $this->cover('InjectionCheck · SQLi por tempo', $path, $assessment['verdict']);
+                if ($assessment['finding']) {
+                    $this->scan->findings()->create($assessment['finding']);
+                    $this->scan->event('finding', 'Atraso controlado indica SQLi', "A carga temporal em {$path} ({$point['point']}) atrasou a resposta.", $assessment['finding']['evidence']);
+                }
+            } elseif ($point['class'] === 'ssrf') {
+                $token = $callback['token'].sprintf('r%02d', $this->probeIndex++);
+                $value = str_replace(Payloads::CALLBACK, $callback['base'].'/api/colaborador/'.$token, $payload['value']);
+                $this->runner('/probe', ['path' => $path, 'inject' => $inject($value), 'markers' => []]);
+                $this->observe();
+                usleep(800000);
+                $hits = CollaboratorHit::where('token', $token)->get()
+                    ->map(fn ($hit) => ['source_ip' => $hit->source_ip, 'path' => $hit->path, 'received_at' => (string) $hit->received_at])->all();
+                $assessment = $this->ssrfAssess($path, $hits, $token);
+                $this->cover('SSRF · callback out-of-band', $path, $assessment['verdict']);
+                if ($assessment['finding']) {
+                    $this->scan->findings()->create($assessment['finding']);
+                    $this->scan->event('finding', 'Servidor chamou o coletor da Égide', "A injeção em {$path} ({$point['point']}) fez o servidor chamar o callback.", $assessment['finding']['evidence']);
+                }
+            } else {
+                $probe = $this->runner('/probe', ['path' => $path, 'inject' => $inject($payload['value']), 'markers' => []]);
+                $this->observe();
+                if ($this->jwtToken === null && preg_match('~eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}~', (string) ($probe['sample'] ?? ''), $hit)) {
+                    $this->jwtToken = $hit[0];
+                }
+                $assessment = $this->injectionReflectedAssess($payload['value'], $path, $probe['sample'] ?? '', $probe['type'] ?? '');
+                $this->cover('InjectionCheck · XSS refletido', $path, $assessment['verdict']);
+                if ($assessment['finding']) {
+                    $this->scan->findings()->create($assessment['finding']);
+                    $this->scan->event('finding', 'Entrada refletida sem escape', "A resposta de {$path} ({$point['point']}) devolveu o marcador sem escape.", $assessment['finding']['evidence']);
+                }
+            }
+        }
     }
 
     private function cover(string $check, string $route, string $verdict): void
@@ -446,7 +584,7 @@ class RunScan implements ShouldQueue
         foreach (array_slice(array_values(array_unique($candidates)), 0, 4) as $route) {
             $this->checkStop();
             [$path, $query] = array_pad(explode('?', $route, 2), 2, '');
-            if (preg_match('~(delete|remove|destroy|cancel|logout|sair|excluir|apagar|encerrar|revoke|reset)~i', $path)) {
+            if ($this->destructiveRoute($path)) {
                 continue;
             }
             parse_str($query, $params);
@@ -492,6 +630,9 @@ class RunScan implements ShouldQueue
         foreach (array_slice(array_values(array_unique($candidates)), 0, 4) as $route) {
             $this->checkStop();
             [$path, $query] = array_pad(explode('?', $route, 2), 2, '');
+            if ($this->destructiveRoute($path)) {
+                continue;
+            }
             parse_str($query, $params);
             $param = null;
             foreach (array_keys($params ?: []) as $key) {
@@ -587,6 +728,9 @@ class RunScan implements ShouldQueue
         $this->scan->update(['phase' => 'Acesso sem autenticação']);
         foreach (array_slice($protectedRoutes, 0, 6) as $route) {
             $this->checkStop();
+            if ($this->destructiveRoute($route) || ! $this->inScope($route)) {
+                continue;
+            }
             $authProbe = $this->runner('/probe', ['path' => $route, 'markers' => []]);
             $this->observe();
             $anonProbe = $this->runner('/probe', ['path' => $route, 'markers' => [$authProbe['marker'] ?? ''], 'anon' => true]);
@@ -852,8 +996,10 @@ class RunScan implements ShouldQueue
         $this->softCheck('Enumeração de identificador', fn () => $this->idEnumTest($ownRecord['path']));
         $this->softCheck('Atribuição em massa', fn () => $this->massTest($actor, $ownRecord['path']));
         $this->softCheck('Exposição excessiva de dados', fn () => $this->excessiveTest($actor, $ownRecord['path']));
-        $this->softCheck('Injeção', fn () => $this->injectionTest(["/servicos/{$variant}/busca?q=1", "/servicos/{$variant}/consulta?id=1"]));
-        $this->softCheck('SSRF', fn () => $this->ssrfTest(["/servicos/{$variant}/integrador?url=x"]));
+        foreach (["/servicos/{$variant}/busca?q=1", "/servicos/{$variant}/consulta?id=1", "/servicos/{$variant}/integrador?url=x"] as $seed) {
+            $this->inventory = EndpointMap::merge($this->inventory, ['method' => 'GET', 'path' => $seed, 'auth' => true]);
+        }
+        $this->agenticBattery($planner);
 
         $reachable = ["/{$variant}/faturas", "/{$variant}/painel", $adminRoute, $ownRecord['path'], "/servicos/{$variant}/busca"];
         $uiLinked = ["/{$variant}/faturas", "/{$variant}/painel", "/{$variant}/ajuda", $ownRecord['path']];
@@ -995,7 +1141,13 @@ class RunScan implements ShouldQueue
     {
         $accounts = $this->scan->credentials;
         if (empty($accounts['b'])) {
-            return $this->mapExternal($planner);
+            $result = $this->mapExternal($planner);
+            if ($result === 'mapped' && $this->singleAggressivePass()) {
+                $this->agenticBattery($planner);
+                $this->softCheck('Acesso sem autenticação', fn () => $this->unauthTest($this->sessionGetRoutes()));
+            }
+
+            return $result;
         }
 
         $this->scan->update(['phase' => 'Exploração entre duas contas']);
@@ -1452,7 +1604,7 @@ class RunScan implements ShouldQueue
         }
     }
 
-    private function observe(bool $saveFrame = true): array
+    protected function observe(bool $saveFrame = true): array
     {
         $this->checkStop();
         $data = $this->runner('/observe', ['frame' => $saveFrame]);
@@ -1474,6 +1626,11 @@ class RunScan implements ShouldQueue
                 $answered = ($event['status'] ?? 0) >= 100 && $event['status'] < 400 && ! Checks::isProbe($event['path']);
                 if ($answered) {
                     $this->endpoints[$event['method'].' '.$route] = true;
+                    $this->inventory = EndpointMap::merge($this->inventory, [
+                        'method' => $event['method'],
+                        'path' => EndpointMap::qualify($event['host'], $front, $event['path']),
+                        'auth' => ! empty($this->scan->credentials),
+                    ]);
                 }
                 foreach ($answered ? ($event['issues'] ?? []) : [] as $issue) {
                     if (is_string($issue) && preg_match('~^(?:hsts|csp|clickjacking|nosniff|version:[\w ./()-]{1,80}|cookie:[\w.-]{1,60}:[a-z,]{1,40})$~D', $issue)) {
@@ -1550,7 +1707,7 @@ class RunScan implements ShouldQueue
         }
     }
 
-    private function runner(string $path, array $data = []): array
+    protected function runner(string $path, array $data = []): array
     {
         $response = Http::connectTimeout(4)->timeout(70)->withoutRedirecting()
             ->withToken(config('egide.runner_token') ?: 'unconfigured')

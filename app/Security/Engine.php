@@ -27,7 +27,7 @@ final class Engine
         }
         $key = $platform->key();
         if (in_array($provider, self::HOSTED, true) && filled($key) && filled($platform->ai_model)) {
-            return ['provider' => $provider, 'model' => $platform->ai_model, 'key' => $key];
+            return ['provider' => $provider, 'model' => $platform->ai_model, 'nav_model' => $platform->ai_nav_model ?: null, 'key' => $key];
         }
 
         return null;
@@ -58,6 +58,7 @@ final class Engine
         return [
             'provider' => $provider,
             'model' => $provider === 'claude_local' ? ($model ?: config('egide.claude_model')) : null,
+            'nav_model' => null,
             'key' => null,
         ];
     }

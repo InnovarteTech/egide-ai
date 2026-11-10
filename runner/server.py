@@ -375,10 +375,37 @@ def write(data):
 
 def probe(data):
     url, path = resolve_target(data["path"])
-    qs = build_query(data.get("query"))
+    query = data.get("query")
+    inject = data.get("inject")
+    method = "GET"
+    body = None
+    if isinstance(inject, dict):
+        point = inject.get("point")
+        value = str(inject.get("value", ""))[:300]
+        key = inject.get("key")
+        if point == "path":
+            segments = path.rstrip("/").split("/")
+            if len(segments) > 1:
+                segments[-1] = urllib.parse.quote(value, safe="")
+                path = "/".join(segments)
+                if url:
+                    url = f"https://{SESSION['api']}{path}"
+        elif point == "query":
+            name = key if isinstance(key, str) and re.fullmatch(r"[A-Za-z0-9_.\-]{1,40}", key) else "q"
+            query = {**(query or {}), name: value}
+        elif point == "body":
+            if not (isinstance(key, str) and re.fullmatch(r"[A-Za-z0-9_.\-]{1,40}", key)):
+                raise ValueError("Campo de corpo inválido")
+            method = "POST"
+            body = {key: value}
+    qs = build_query(query)
     command = {"kind": "probe", "path": path + qs, "origin": actor_origin(), "markers": data.get("markers", []), "anon": bool(data.get("anon"))}
     if url:
         command["url"] = url + qs
+    if method != "GET":
+        command["method"] = method
+    if body is not None:
+        command["body"] = body
     return bridge_call(command)
 
 

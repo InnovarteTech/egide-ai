@@ -18,9 +18,9 @@ function AdminScans({ scans, stoppable }) {
         </tr>)}</tbody>
     </table></div>;
 }
-const engineFields = ['provider', 'model', 'api_key', 'daily_limit'];
+const engineFields = ['provider', 'model', 'nav_model', 'api_key', 'daily_limit'];
 function EngineForm({ engine }) {
-    const form = useForm({ provider: engine.provider, model: engine.model ?? '', api_key: '', daily_limit: engine.limit });
+    const form = useForm({ provider: engine.provider, model: engine.model ?? '', nav_model: engine.nav_model ?? '', api_key: '', daily_limit: engine.limit });
     const hosted = engine.hosted.includes(form.data.provider);
     const saved = form.data.provider === engine.provider && engine.keyHint;
     const options = { preserveScroll: true, preserveState: true };
@@ -30,7 +30,8 @@ function EngineForm({ engine }) {
             <div className="engine-status">{engine.ready ? <Badge tone="green">Ativo para todas as contas</Badge> : <Badge>Desligado</Badge>}<span>{engine.ready ? 'Todas as sessões com IA usam este motor.' : 'Sem motor, as sessões rodam o roteiro do laboratório.'}</span></div>
             <div className="form-stack">
                 <Field label="Provedor" error={form.errors.provider}><select value={form.data.provider} onChange={e => form.setData('provider', e.target.value)}>{Object.entries(engine.providers).map(([key, label]) => <option key={key} value={key}>{key === 'lab' ? 'Desligado (roteiro do laboratório)' : label}</option>)}</select></Field>
-                {form.data.provider !== 'lab' && <Field label="Modelo" error={form.errors.model} help={hosted ? 'Identificador do modelo no provedor.' : 'Opcional no motor local.'}><input className="mono-input" value={form.data.model} onChange={e => form.setData('model', e.target.value)} placeholder={form.data.provider === 'anthropic' ? 'claude-sonnet-5-5' : ''} /></Field>}
+                {form.data.provider !== 'lab' && <Field label="Modelo estrategista" error={form.errors.model} help={hosted ? 'Modelo que pensa: planeja ataque, monta payload, decide escalada.' : 'Opcional no motor local.'}><input className="mono-input" value={form.data.model} onChange={e => form.setData('model', e.target.value)} placeholder={form.data.provider === 'anthropic' ? 'claude-sonnet-5-5' : ''} /></Field>}
+                {hosted && <Field label="Modelo navegador" error={form.errors.nav_model} help="Modelo barato que navega e clica. Opcional — vazio usa o estrategista para tudo."><input className="mono-input" value={form.data.nav_model} onChange={e => form.setData('nav_model', e.target.value)} placeholder="claude-haiku-5-5" /></Field>}
                 {hosted && <Field label="Chave de API" error={form.errors.api_key} help={saved ? 'Chave salva terminando em ' + engine.keyHint + '. Deixe vazio para manter.' : 'Fica criptografada no banco. Depois de salva, só aparece o final.'}><input type="password" autoComplete="new-password" className="mono-input" value={form.data.api_key} onChange={e => form.setData('api_key', e.target.value)} placeholder={saved ? '••••••••' + engine.keyHint.slice(1) : ''} /></Field>}
                 <Field label="Limite diário por conta" error={form.errors.daily_limit} help="Sessões com IA por conta, por dia. Admins não têm limite."><input type="number" min={1} max={500} inputMode="numeric" value={form.data.daily_limit} onChange={e => form.setData('daily_limit', e.target.value)} /></Field>
             </div>

@@ -64,8 +64,11 @@ async function collect(command) {
   if (command?.kind === 'probe' && command.url) {
     if (new URL(tab.url).origin !== command.origin) return {result:{status:0, matches:[]}};
     const anon = command.anon === true;
+    const headers = anon ? {'X-Egide-Probe':'1', 'X-Egide-Anon':'1'} : {'X-Egide-Probe':'1'};
+    const init = {credentials: anon ? 'omit' : 'include', cache:'no-store', redirect:'manual', headers, signal:AbortSignal.timeout(8500)};
+    if (command.method && command.method !== 'GET') { init.method = command.method; headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(command.body || {}); }
     const t0 = Date.now();
-    const response = await fetch(command.url, {credentials: anon ? 'omit' : 'include', cache:'no-store', redirect:'manual', headers: anon ? {'X-Egide-Probe':'1', 'X-Egide-Anon':'1'} : {'X-Egide-Probe':'1'}, signal:AbortSignal.timeout(8500)});
+    const response = await fetch(command.url, init);
     const result = await readProbe(response, command.markers || []);
     result.elapsed = Date.now() - t0;
     return {result};

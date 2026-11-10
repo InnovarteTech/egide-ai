@@ -45,7 +45,7 @@ class AdminController extends Controller
                 ]),
             'horizon' => true,
             'engine' => [
-                'provider' => $platform->ai_provider, 'model' => $platform->ai_model,
+                'provider' => $platform->ai_provider, 'model' => $platform->ai_model, 'nav_model' => $platform->ai_nav_model,
                 'keyHint' => filled($key = $platform->key()) ? '…'.mb_substr($key, -4) : null,
                 'limit' => $platform->ai_daily_limit, 'ready' => Engine::platform() !== null,
                 'providers' => Engine::providers(), 'hosted' => Engine::HOSTED,
@@ -60,6 +60,7 @@ class AdminController extends Controller
         Platform::current()->update([
             'ai_provider' => $data['provider'],
             'ai_model' => $data['provider'] === 'lab' ? null : $data['model'],
+            'ai_nav_model' => $data['provider'] === 'lab' ? null : ($data['nav_model'] ?: null),
             'ai_key' => $hosted ? $data['key'] : null,
             'ai_daily_limit' => $data['daily_limit'],
         ]);
@@ -78,6 +79,9 @@ class AdminController extends Controller
         $field = in_array($data['provider'], Engine::HOSTED, true) ? 'api_key' : 'provider';
         try {
             $planner->check($data['provider'], $data['model'], $data['key']);
+            if (filled($data['nav_model'])) {
+                $planner->check($data['provider'], $data['nav_model'], $data['key']);
+            }
         } catch (ConnectionException) {
             throw ValidationException::withMessages([$field => 'Não foi possível conectar ao provedor: tempo esgotado ou rede bloqueada.']);
         } catch (RuntimeException $exception) {
@@ -129,11 +133,13 @@ class AdminController extends Controller
         $data = $request->validate([
             'provider' => ['required', Rule::in(array_keys(Engine::providers()))],
             'model' => 'nullable|string|max:100|regex:/^[a-zA-Z0-9_.:\/-]+$/',
+            'nav_model' => 'nullable|string|max:100|regex:/^[a-zA-Z0-9_.:\/-]+$/',
             'api_key' => 'nullable|string|max:450',
             'daily_limit' => [$saving ? 'required' : 'nullable', 'integer', 'min:1', 'max:500'],
         ]);
         $platform = Platform::current();
         $data['model'] ??= null;
+        $data['nav_model'] ??= null;
         $data['key'] = $data['api_key'] ?? ($platform->ai_provider === $data['provider'] ? $platform->key() : null);
         if (in_array($data['provider'], Engine::HOSTED, true)) {
             $errors = array_filter([

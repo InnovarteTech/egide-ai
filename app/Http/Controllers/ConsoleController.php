@@ -381,6 +381,7 @@ class ConsoleController extends Controller
             'denied' => ['/administracao', '/pagamentos'],
             'write' => ['method' => 'PATCH', 'host' => 'lab.egide.test', 'path' => "/servicos/{$variant}/extratos", 'prefix' => true, 'max' => 4],
         ];
+        $scope['nav_model'] = $engine['nav_model'] ?? null;
 
         $model = $engine['model'] ?? null;
         $engineKey = $engine['key'] ?? null;

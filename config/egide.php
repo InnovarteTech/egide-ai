@@ -26,4 +26,10 @@ return [
         'claude_local' => 'Claude local (Claude Code)',
         'codex' => 'Codex local',
     ],
+    'agentic' => [
+        'max_endpoints' => (int) env('EGIDE_AGENTIC_MAX_ENDPOINTS', 12),
+        'max_payloads_per_point' => (int) env('EGIDE_AGENTIC_MAX_PAYLOADS', 6),
+        'max_escalation_depth' => (int) env('EGIDE_AGENTIC_MAX_DEPTH', 2),
+        'max_strategist_calls' => (int) env('EGIDE_AGENTIC_MAX_STRATEGIST', 40),
+    ],
 ];
