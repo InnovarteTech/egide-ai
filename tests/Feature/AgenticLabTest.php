@@ -48,6 +48,15 @@ class FakeRunScan extends RunScan
 
             return $safe;
         }
+        if (in_array($value, ["'", '"', "')", "';"], true) && str_contains($route, 'consulta')) {
+            return ['sample' => 'Fatal error: SQLSTATE[42000]: Syntax error or access violation near "\'"', 'type' => 'application/json', 'status' => 500, 'elapsed' => 50];
+        }
+        if (str_contains($value, 'etc/passwd') && str_contains($route, 'arquivo')) {
+            return ['sample' => "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:", 'type' => 'text/plain', 'status' => 200, 'elapsed' => 50];
+        }
+        if (str_contains($route, 'graphql') && str_contains($value, '__schema')) {
+            return ['sample' => '{"data":{"__schema":{"queryType":{"name":"Query"},"types":[{"name":"User"}]}}}', 'type' => 'application/json', 'status' => 200, 'elapsed' => 50];
+        }
 
         return $safe;
     }
@@ -75,6 +84,8 @@ class AgenticLabTest extends TestCase
             'GET /servicos/vulneravel/consulta' => ['method' => 'GET', 'path' => '/servicos/vulneravel/consulta', 'params' => ['id'], 'body' => [], 'auth' => true, 'seen_in' => 'xhr'],
             'GET /servicos/vulneravel/integrador' => ['method' => 'GET', 'path' => '/servicos/vulneravel/integrador', 'params' => ['url'], 'body' => [], 'auth' => true, 'seen_in' => 'xhr'],
             'POST /servicos/vulneravel/login' => ['method' => 'POST', 'path' => '/servicos/vulneravel/login', 'params' => [], 'body' => ['email', 'senha'], 'auth' => false, 'seen_in' => 'xhr'],
+            'GET /servicos/vulneravel/arquivo' => ['method' => 'GET', 'path' => '/servicos/vulneravel/arquivo', 'params' => ['file'], 'body' => [], 'auth' => true, 'seen_in' => 'xhr'],
+            'POST /servicos/vulneravel/graphql' => ['method' => 'POST', 'path' => '/servicos/vulneravel/graphql', 'params' => [], 'body' => [], 'auth' => true, 'seen_in' => 'xhr'],
         ];
 
         $reflection = new \ReflectionClass(RunScan::class);
@@ -117,5 +128,14 @@ class AgenticLabTest extends TestCase
     {
         $scan = $this->runLoop(vulnerable: true);
         $this->assertNotContains('AuthCheck · sem limite de tentativas', $scan->findings()->pluck('category')->all());
+    }
+
+    public function test_agentic_loop_finds_wave2_vulnerabilities(): void
+    {
+        $scan = $this->runLoop(vulnerable: true);
+        $categories = $scan->findings()->pluck('category')->all();
+        $this->assertContains('InjectionCheck · SQLi por erro', $categories);
+        $this->assertContains('InjectionCheck · path traversal', $categories);
+        $this->assertContains('InventoryCheck · GraphQL introspection', $categories);
     }
 }

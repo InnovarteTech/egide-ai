@@ -96,7 +96,7 @@ class RunScan implements ShouldQueue
             $plan = $planner->attackPlan($this->scan, $endpoint);
             $spent['strategist_calls']++;
             foreach ($plan as $point) {
-                if (! in_array($point['class'], ['xss', 'sqli_time', 'ssrf'], true)) {
+                if (! in_array($point['class'], ['xss', 'sqli_time', 'ssrf', 'sqli_error', 'traversal', 'graphql'], true)) {
                     continue;
                 }
                 $this->softCheck('Varredura '.$point['class'].' '.$point['point'], fn () => $this->probePoint($endpoint, $point, $callback, $budget['max_payloads_per_point']));
@@ -183,14 +183,20 @@ class RunScan implements ShouldQueue
             } else {
                 $probe = $this->runner('/probe', ['path' => $path, 'inject' => $inject($payload['value']), 'markers' => []]);
                 $this->observe();
-                if ($this->jwtToken === null && preg_match('~eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}~', (string) ($probe['sample'] ?? ''), $hit)) {
+                $sample = (string) ($probe['sample'] ?? '');
+                if ($this->jwtToken === null && preg_match('~eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}~', $sample, $hit)) {
                     $this->jwtToken = $hit[0];
                 }
-                $assessment = $this->injectionReflectedAssess($payload['value'], $path, $probe['sample'] ?? '', $probe['type'] ?? '');
-                $this->cover('InjectionCheck · XSS refletido', $path, $assessment['verdict']);
+                [$label, $title, $assessment] = match ($point['class']) {
+                    'sqli_error' => ['InjectionCheck · SQLi por erro', 'Mensagem de erro do banco vazada', Checks::sqlErrorAssess($path, $sample)],
+                    'traversal' => ['InjectionCheck · path traversal', 'Travessia de diretório expôs arquivo do sistema', Checks::traversalAssess($path, $sample)],
+                    'graphql' => ['InventoryCheck · GraphQL introspection', 'Introspecção de GraphQL habilitada', Checks::graphqlAssess($path, $sample)],
+                    default => ['InjectionCheck · XSS refletido', 'Entrada refletida sem escape', $this->injectionReflectedAssess($payload['value'], $path, $sample, $probe['type'] ?? '')],
+                };
+                $this->cover($label, $path, $assessment['verdict']);
                 if ($assessment['finding']) {
                     $this->scan->findings()->create($assessment['finding']);
-                    $this->scan->event('finding', 'Entrada refletida sem escape', "A resposta de {$path} ({$point['point']}) devolveu o marcador sem escape.", $assessment['finding']['evidence']);
+                    $this->scan->event('finding', $title, "Verificação {$point['class']} em {$path} ({$point['point']}).", $assessment['finding']['evidence']);
                 }
             }
         }

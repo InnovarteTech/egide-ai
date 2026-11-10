@@ -44,4 +44,30 @@ class PayloadsTest extends TestCase
     {
         $this->assertNotSame(Payloads::marker('egideXSS'), Payloads::marker('egideXSS'));
     }
+
+    public function test_wave2_classes_yield_payloads_with_oracle(): void
+    {
+        $map = ['sqli_error' => 'sqlErrorAssess', 'traversal' => 'traversalAssess', 'graphql' => 'graphqlAssess'];
+        foreach ($map as $class => $oracle) {
+            $items = Payloads::for($class, $class === 'graphql' ? 'body' : 'query');
+            $this->assertNotEmpty($items, $class);
+            foreach ($items as $item) {
+                $this->assertSame($oracle, $item['oracle'], $class);
+                $this->assertArrayHasKey('value', $item);
+                $this->assertArrayHasKey('marker', $item);
+            }
+        }
+    }
+
+    public function test_traversal_payload_targets_passwd(): void
+    {
+        $joined = implode(' ', array_column(Payloads::for('traversal', 'query'), 'value'));
+        $this->assertStringContainsString('etc/passwd', $joined);
+    }
+
+    public function test_graphql_payload_is_introspection_query(): void
+    {
+        $value = Payloads::for('graphql', 'body')[0]['value'];
+        $this->assertStringContainsString('__schema', $value);
+    }
 }

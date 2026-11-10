@@ -60,13 +60,21 @@ final class Planner
         foreach ($endpoint['params'] ?? [] as $param) {
             $points[] = ['class' => 'xss', 'point' => 'query', 'key' => $param];
             $points[] = ['class' => 'sqli_time', 'point' => 'query', 'key' => $param];
+            $points[] = ['class' => 'sqli_error', 'point' => 'query', 'key' => $param];
             if (preg_match('~url|uri|link|dest|callback|webhook|redirect|next|feed|proxy~i', (string) $param)) {
                 $points[] = ['class' => 'ssrf', 'point' => 'query', 'key' => $param];
+            }
+            if (preg_match('~file|path|doc|download|anexo|attach|img|image|template|lang|page|include|arquivo~i', (string) $param)) {
+                $points[] = ['class' => 'traversal', 'point' => 'query', 'key' => $param];
             }
         }
         foreach ($endpoint['body'] ?? [] as $field) {
             $points[] = ['class' => 'xss', 'point' => 'body', 'key' => $field];
             $points[] = ['class' => 'sqli_time', 'point' => 'body', 'key' => $field];
+            $points[] = ['class' => 'sqli_error', 'point' => 'body', 'key' => $field];
+        }
+        if (preg_match('~graphql~i', $path)) {
+            $points[] = ['class' => 'graphql', 'point' => 'body', 'key' => 'query'];
         }
         if (preg_match('~/(auth|login|entrar|session|token|oauth)~i', $path)) {
             $points[] = ['class' => 'rate', 'point' => 'path', 'key' => null];
@@ -104,7 +112,7 @@ final class Planner
             'properties' => ['points' => ['type' => 'array', 'items' => [
                 'type' => 'object', 'additionalProperties' => false,
                 'properties' => [
-                    'class' => ['type' => 'string', 'enum' => ['xss', 'sqli_time', 'ssrf', 'idor', 'rate', 'jwt']],
+                    'class' => ['type' => 'string', 'enum' => ['xss', 'sqli_time', 'sqli_error', 'ssrf', 'traversal', 'graphql', 'idor', 'rate', 'jwt']],
                     'point' => ['type' => 'string', 'enum' => ['query', 'path', 'body']],
                     'key' => ['type' => ['string', 'null']],
                 ],
