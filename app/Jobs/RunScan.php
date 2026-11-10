@@ -377,31 +377,6 @@ class RunScan implements ShouldQueue
         return ['verdict' => 'nao_testado', 'finding' => null];
     }
 
-    private function excessiveAssess(string $path, array $apiFields, string $uiText): array
-    {
-        $sensitive = '~(email|mail|cpf|cnpj|phone|telefone|tenant|conta|internal|interno|salario|salary|role|is_admin|admin|senha|password|token|secret|saldo|balance|documento|^doc|endereco|address|ssn)~i';
-        foreach ($apiFields as $field) {
-            $key = (string) ($field['key'] ?? '');
-            $value = (string) ($field['value'] ?? '');
-            if ($key === '' || $value === '' || ! preg_match($sensitive, $key)) {
-                continue;
-            }
-            if (stripos($uiText, $value) === false) {
-                return ['verdict' => 'falha', 'finding' => [
-                    'title' => 'API devolve campo sensível que a tela não mostra', 'severity' => 'medium',
-                    'category' => 'ExcessiveData · exposição excessiva',
-                    'evidence' => [
-                        'method' => 'GET', 'path' => $path, 'field' => $key, 'in_ui' => false,
-                        'reference' => 'OWASP API3:2023 · CWE-213',
-                    ],
-                    'remediation' => 'Devolva na API só os campos que a tela usa; filtre no servidor campos sensíveis em vez de confiar que o cliente os esconde.',
-                ]];
-            }
-        }
-
-        return ['verdict' => 'protegido', 'finding' => null];
-    }
-
     private function idEnumTest(string $ownRecordPath): void
     {
         if (! $this->aggressiveAllowed()) {
@@ -690,30 +665,6 @@ class RunScan implements ShouldQueue
                 $this->scan->event('finding', 'Servidor chamou o coletor da Égide', "A injeção em {$path} fez o servidor chamar o callback out-of-band.", $assessment['finding']['evidence']);
                 break;
             }
-        }
-    }
-
-    private function excessiveTest(string $owner, string $recordPath): void
-    {
-        if (! $this->aggressiveAllowed()) {
-            return;
-        }
-        $this->scan->update(['phase' => 'Exposição excessiva de dados']);
-        $this->runner('/action', ['kind' => 'switch', 'actor' => $owner]);
-        $observation = $this->observe();
-        $fields = $this->runner('/fields', ['path' => $recordPath]);
-        if (($fields['status'] ?? 0) !== 200 || empty($fields['fields'])) {
-            $this->cover('ExcessiveData · exposição excessiva', $recordPath, 'nao_testado');
-
-            return;
-        }
-        $labels = collect($this->visible($observation['page']))->map(fn ($control) => $control['label'] ?? '')->implode(' ');
-        $uiText = ($observation['page']['text'] ?? '').' '.$labels;
-        $assessment = $this->excessiveAssess($recordPath, $fields['fields'], $uiText);
-        $this->cover('ExcessiveData · exposição excessiva', $recordPath, $assessment['verdict']);
-        if ($assessment['finding']) {
-            $this->scan->findings()->create($assessment['finding']);
-            $this->scan->event('finding', 'Campo sensível só na API', "A API devolveu \"{$assessment['finding']['evidence']['field']}\" que a tela não mostra em {$recordPath}.", $assessment['finding']['evidence']);
         }
     }
 
