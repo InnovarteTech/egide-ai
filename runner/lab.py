@@ -1,33 +1,16 @@
 import csv
 import html
 import io
-import ipaddress
 import json
 import re
 import secrets
 import smtplib
-import socket
-import time
-import urllib.request
-from urllib.parse import urlsplit as _urlsplit
-
-
-def _public_host(url):
-    host = _urlsplit(url).hostname
-    if not host:
-        return False
-    try:
-        for info in socket.getaddrinfo(host, None):
-            ip = ipaddress.ip_address(info[4][0])
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified:
-                return False
-    except Exception:
-        return False
-    return True
 from email.message import EmailMessage
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlsplit
+
+import lab_services
 
 ORIGIN = "http://lab.egide.test:8788"
 accounts = {}
@@ -159,33 +142,7 @@ class Lab(BaseHTTPRequestHandler):
             record = invoices[owner]
             self.reply(json.dumps({"fatura": invoice, "empresa": owner.upper(), "marcador": record["marcador"], "nota": record["nota"]}), kind="application/json")
             return
-        busca = re.fullmatch(r"/servicos/(vulneravel|corrigido)/busca", path)
-        if busca:
-            variant = busca.group(1)
-            term = parse_qs(urlsplit(self.path).query).get("q", [""])[0]
-            shown = term if variant == "vulneravel" else html.escape(term)
-            self.reply(page(f"<small>BUSCA</small><h1>Resultados</h1><p>Resultados para {shown}</p>"))
-            return
-        consulta = re.fullmatch(r"/servicos/(vulneravel|corrigido)/consulta", path)
-        if consulta:
-            variant = consulta.group(1)
-            value = parse_qs(urlsplit(self.path).query).get("id", [""])[0]
-            if variant == "vulneravel" and re.search(r"sleep|benchmark|waitfor|pg_sleep|'", value, re.I):
-                time.sleep(6)
-            self.reply(json.dumps({"consulta": value[:40], "itens": []}), kind="application/json")
-            return
-        integrador = re.fullmatch(r"/servicos/(vulneravel|corrigido)/integrador", path)
-        if integrador:
-            variant = integrador.group(1)
-            destino = parse_qs(urlsplit(self.path).query).get("url", [""])[0]
-            if variant == "vulneravel" and destino.startswith(("http://", "https://")) and _public_host(destino):
-                try:
-                    urllib.request.urlopen(destino, timeout=4).read(64)
-                except Exception:
-                    pass
-                self.reply(json.dumps({"ok": True, "destino": destino[:120]}), kind="application/json")
-            else:
-                self.reply(json.dumps({"error": "destino nao permitido"}), 400, "application/json")
+        if lab_services.get(self, path, page):
             return
         match = re.fullmatch(r"/(vulneravel|corrigido)(?:/(entrar|cadastro|painel|faturas|ajuda))?/?", path)
         if not match:
@@ -200,11 +157,13 @@ class Lab(BaseHTTPRequestHandler):
             self.reply(page(f"""
 <small>AMBIENTE CONTROLADO · {variant.upper()}</small><h1>{title}</h1>
 <p>Portal de faturamento com registros fictícios para avaliação de acesso.</p>
+<p id="aviso" role="status"></p>
 <form method="post" action="/{variant}/{action}">
 <label>E-mail<input name="email" type="email" required autocomplete="off"></label>
 <label>Senha<input name="password" type="password" required autocomplete="off"></label>
 <button type="submit">{button}</button></form>
 <nav><a href="/{variant}/cadastro">Cadastrar nova conta</a><a href="/{variant}/entrar">Ir para login</a></nav>
+<script src="/{variant}/app.js"></script>
 """))
             return
         actor = self.actor()
@@ -266,6 +225,8 @@ document.getElementById("exportar").onclick = async () => {{
         self.reply(json.dumps({"fatura": invoice, "empresa": owner.upper(), "nota": invoices[owner]["nota"]}), kind="application/json")
 
     def do_POST(self):
+        if lab_services.post(self, urlsplit(self.path).path):
+            return
         match = re.fullmatch(r"/(vulneravel|corrigido)/(cadastro|entrar)", self.path)
         if not match:
             self.reply(page("<h1>Rota indisponível</h1>"), 404)

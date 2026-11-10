@@ -22,6 +22,19 @@ final class ClientScan
         'useSearchParams', 'useParams', 'query.', 'params.', 'props.match',
     ];
 
+    private const QUERY_SOURCES = ['location.search', 'location.href', 'document.URL', 'URLSearchParams', 'searchParams', 'useSearchParams', 'query.'];
+
+    public static function readsQuery(string $js): bool
+    {
+        foreach (self::QUERY_SOURCES as $source) {
+            if (str_contains($js, $source)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static function sinks(string $js): array
     {
         $found = [];

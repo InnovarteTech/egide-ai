@@ -318,7 +318,7 @@ class ConsoleController extends Controller
         $data = $request->validate([
             'mode' => 'required|in:laboratory,retest,external',
             'target_id' => 'nullable|required_if:mode,external|integer',
-            'budget' => 'nullable|integer|min:10|max:180',
+            'budget' => 'nullable|integer|min:10|max:'.($request->input('mode') === 'external' ? 180 : 300),
             'authorized' => 'accepted_if:mode,external',
             'agent' => 'sometimes|boolean',
             'retest_of' => 'nullable|uuid|prohibited_unless:mode,external',
@@ -377,6 +377,7 @@ class ConsoleController extends Controller
                 ['method' => 'GET', 'path' => '/favicon.ico', 'prefix' => false],
                 ['method' => 'POST', 'path' => "/{$variant}/cadastro", 'prefix' => false],
                 ['method' => 'POST', 'path' => "/{$variant}/entrar", 'prefix' => false],
+                ['method' => 'POST', 'path' => "/servicos/{$variant}/graphql", 'prefix' => false],
             ],
             'denied' => ['/administracao', '/pagamentos'],
             'write' => ['method' => 'PATCH', 'host' => 'lab.egide.test', 'path' => "/servicos/{$variant}/extratos", 'prefix' => true, 'max' => 4],

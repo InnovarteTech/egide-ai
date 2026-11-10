@@ -33,13 +33,16 @@ def current_actor():
         return None
 
 
-def record(request, status, allowed, reason="", issues=None):
+def record(request, status, allowed, reason="", issues=None, location=None):
+    event = {
+        "method": request.method, "host": request.pretty_host,
+        "path": urlsplit(request.path).path[:280], "status": status,
+        "allowed": allowed, "reason": reason, "issues": issues or [],
+    }
+    if location:
+        event["location"] = location[:300]
     with open(events, "a") as output:
-        output.write(json.dumps({
-            "method": request.method, "host": request.pretty_host,
-            "path": urlsplit(request.path).path[:280], "status": status,
-            "allowed": allowed, "reason": reason, "issues": issues or [],
-        }) + "\n")
+        output.write(json.dumps(event) + "\n")
 
 
 def expired(parts):
@@ -236,6 +239,19 @@ def server_connect(data):
         data.server.error = "Resolução pública inválida"
 
 
+def destination(location):
+    value = re.sub(r"[\t\r\n]", "", location.strip()).replace("\\", "/")
+    value = re.sub(r"^(?:https?:)?/{2,}", "https://", value, flags=re.I)
+    try:
+        parts = urlsplit(value)
+        host = parts.hostname
+    except ValueError:
+        return ""
+    return "https://" + host.rstrip(".") + "/" if host else parts.path[:280]
+
+
 def response(flow):
     if not flow.response.headers.get("X-Egide-Blocked"):
-        record(flow.request, flow.response.status_code, True, issues=inspect(flow))
+        status = flow.response.status_code
+        location = destination(flow.response.headers.get("location", "")) if 300 <= status < 400 else None
+        record(flow.request, status, True, issues=inspect(flow), location=location)

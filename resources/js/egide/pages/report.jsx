@@ -2,7 +2,7 @@ import { Head, Link } from '@inertiajs/react';
 import { ArrowLeft, Info, ShieldCheck, Printer, TriangleAlert } from 'lucide-react';
 import { statuses, outcomes, severities, risks, verdicts, formatDate, formatTime, scanLabel, hostOf, bySeverity } from '../format';
 import { Logo, Badge } from '../ui';
-import { RuleColumns } from '../evidence';
+import { RuleColumns, crossAccount, evidenceFacts } from '../evidence';
 
 const sensitiveFiles = ['.env', '.git/HEAD', '.git/config', 'backup.sql', 'dump.sql', 'phpinfo.php', 'server-status', 'actuator/env', '.DS_Store'];
 const coverageTones = { falha: 'red', protegido: 'green', nao_testado: 'neutral' };
@@ -80,17 +80,22 @@ export function Report({ scan, events, findings, target, engine, generatedAt }) 
                             {evidence.kind ? <>
                                 {evidence.paths?.length > 1 && <tr><th>Outras rotas</th><td>{evidence.paths.slice(1).map(path => <code key={path} className="inline-route">{path}</code>)}</td></tr>}
                                 <tr><th>Evidência</th><td>{evidence.detail}</td></tr>
-                            </> : <>
+                            </> : crossAccount(evidence) ? <>
                                 <tr><th>Sessão usada</th><td>{evidence.actor}</td></tr>
                                 <tr><th>Dono do registro</th><td>{evidence.owner}</td></tr>
                                 <tr><th>Controle positivo</th><td>HTTP {evidence.own_status} no registro próprio</td></tr>
                                 <tr><th>Acesso cruzado</th><td>HTTP {evidence.cross_status}, marcador do outro registro presente na resposta</td></tr>
+                            </> : <>
+                                {evidenceFacts(evidence).map(([key, label, value]) => <tr key={key}><th>{label}</th><td>{value}</td></tr>)}
+                                {evidence.detail && <tr><th>Evidência</th><td>{evidence.detail}</td></tr>}
                             </>}
                             {evidence.reference && <tr><th>Referência</th><td>{evidence.reference}</td></tr>}
                         </tbody></table>
                         <h4>Correção recomendada</h4>
                         <p>{finding.remediation}</p>
-                        {!evidence.kind && <><h4>Como validar a correção</h4><p>Rode o reteste na Égide AI. A mesma prova precisa receber HTTP 403 ou 404 no acesso cruzado, mantendo o acesso de cada conta ao próprio registro.</p></>}
+                        {!evidence.kind && <><h4>Como validar a correção</h4><p>{crossAccount(evidence)
+                            ? 'Rode o reteste na Égide AI. A mesma prova precisa receber HTTP 403 ou 404 no acesso cruzado, mantendo o acesso de cada conta ao próprio registro.'
+                            : 'Rode o reteste na Égide AI. A mesma verificação precisa terminar como protegida, sem reproduzir a prova acima.'}</p></>}
                     </div>;
                 }) : <p>Nenhuma vulnerabilidade confirmada nesta sessão.</p>}
             </section>

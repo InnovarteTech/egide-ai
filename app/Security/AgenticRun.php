@@ -51,6 +51,7 @@ final class AgenticRun
             $score += str_contains($path, '/api') ? 2 : 0;
             $score += (! empty($entry['params']) || ! empty($entry['body'])) ? 2 : 0;
             $score += preg_match('~/(\{id\}|\d+)(?=/|$)~', $path) ? 1 : 0;
+            $score += preg_match('~graphql~i', $path) ? 2 : 0;
             $scored[] = ['score' => $score, 'entry' => $entry];
         }
         usort($scored, fn ($a, $b) => $b['score'] <=> $a['score']);

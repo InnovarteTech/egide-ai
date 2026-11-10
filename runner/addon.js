@@ -30,7 +30,7 @@ async function readProbe(response, markers) {
   const matches = markers.filter(marker => text.includes(marker));
   return {status: response.status, matches, type: (response.headers.get('content-type') || '').slice(0, 80),
     marker: matches[0] || (!markers.length && (text.match(/(?:EGIDE|ESCOPO)-[A-F0-9]{12}/) || [])[0]) || null,
-    sample: text.slice(0, 2000), blocked: response.headers.get('x-egide-blocked') === '1'};
+    sample: text.slice(0, 2000), size: text.length, blocked: response.headers.get('x-egide-blocked') === '1'};
 }
 
 async function collect(command) {
@@ -41,9 +41,14 @@ async function collect(command) {
     return {result:{ok:true}};
   }
   if (command?.kind === 'dom_probe') {
+    const sameDocument = tab.url.split('#')[0] === command.url.split('#')[0];
     await browser.tabs.update(tab.id, {url: command.url});
+    if (sameDocument) {
+      await new Promise(resolve => setTimeout(resolve, 150));
+      await browser.tabs.reload(tab.id, {bypassCache: true});
+    }
     await new Promise(resolve => setTimeout(resolve, 1800));
-    const code = `(() => { try { return {executed: window.__EGIDE_XSS === ${JSON.stringify(command.token)}, token: (window.__EGIDE_XSS || null)}; } catch (e) { return {executed:false, token:null}; } })()`;
+    const code = `(() => { try { const page = window.wrappedJSObject || window; return {executed: page.__EGIDE_XSS === ${JSON.stringify(command.token)}, token: (page.__EGIDE_XSS || null)}; } catch (e) { return {executed:false, token:null}; } })()`;
     try {
       const [value] = await browser.tabs.executeScript(tab.id, {code, runAt:'document_idle'});
       return {result: value || {executed:false, token:null}};
@@ -86,10 +91,15 @@ async function collect(command) {
   }
   if (command?.kind === 'probe') {
     const anon = command.anon === true;
+    const headers = anon ? {'X-Egide-Probe':'1', 'X-Egide-Anon':'1'} : {'X-Egide-Probe':'1'};
+    const init = {credentials: anon ? 'omit' : 'same-origin', cache:'no-store', redirect:'manual', headers};
+    if (command.method && command.method !== 'GET') { init.method = command.method; headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(command.body || {}); }
     const code = `(async () => {
       if (location.origin !== ${JSON.stringify(command.origin)}) return {status:0, matches:[]};
+      const init = ${JSON.stringify(init)};
+      init.signal = AbortSignal.timeout(8500);
       const t0 = Date.now();
-      const response = await content.fetch(new URL(${JSON.stringify(command.path)}, location.origin).href, {credentials:${anon ? "'omit'" : "'same-origin'"}, cache:'no-store', redirect:'manual', headers:${anon ? "{'X-Egide-Probe':'1', 'X-Egide-Anon':'1'}" : "{'X-Egide-Probe':'1'}"}, signal:AbortSignal.timeout(8500)});
+      const response = await content.fetch(new URL(${JSON.stringify(command.path)}, location.origin).href, init);
       const out = await (${readProbe.toString()})(response, ${JSON.stringify(command.markers || [])});
       out.elapsed = Date.now() - t0;
       return out;

@@ -10,9 +10,24 @@ export function RuleColumns({ scope }) {
             <li><X size={14} /><span>Outros domínios, métodos e rotas</span></li></ul></div>
     </div>;
 }
+const factLabels = [
+    ['actor', 'Sessão'], ['owner', 'Proprietária'], ['field', 'Campo'], ['probed_id', 'ID testado'],
+    ['payload', 'Carga'], ['probe', 'Carga'], ['rounds', 'Rodadas'], ['true_status', 'HTTP com condição verdadeira'],
+    ['false_status', 'HTTP com condição falsa'], ['redirect_host', 'Destino do redirecionamento'], ['status', 'HTTP'],
+    ['baseline_ms', 'Tempo base (ms)'], ['payload_ms', 'Tempo com a carga (ms)'], ['anon_status', 'HTTP sem sessão'],
+    ['normal_status', 'HTTP da conta comum'], ['source_ip', 'IP que chamou o coletor'], ['alg', 'Algoritmo do token'],
+];
+export function evidenceFacts(evidence) {
+    return factLabels.filter(([key]) => evidence[key] !== undefined && evidence[key] !== null && evidence[key] !== '')
+        .map(([key, label]) => [key, label, String(evidence[key])]);
+}
+export function crossAccount(evidence) {
+    return evidence.cross_status !== undefined;
+}
 export function FindingCard({ finding, link = false }) {
     const [severity, tone] = severities[finding.severity] ?? [finding.severity, 'neutral'];
     const evidence = finding.evidence;
+    const facts = evidenceFacts(evidence);
     return <article className="finding-item">
         <div className="finding-head">
             <span className={'finding-icon tone-' + tone}><Crosshair size={19} /></span>
@@ -21,7 +36,11 @@ export function FindingCard({ finding, link = false }) {
         </div>
         <code className="evidence-route">{evidence.method} {evidence.path}</code>
         {evidence.kind ? <p className="evidence-detail">{evidence.detail}</p>
-            : <dl className="evidence-grid"><div><dt>Sessão</dt><dd>{evidence.actor}</dd></div><div><dt>Proprietária</dt><dd>{evidence.owner}</dd></div><div><dt>Resposta</dt><dd>HTTP {evidence.cross_status}</dd></div></dl>}
+            : crossAccount(evidence) ? <dl className="evidence-grid"><div><dt>Sessão</dt><dd>{evidence.actor}</dd></div><div><dt>Proprietária</dt><dd>{evidence.owner}</dd></div><div><dt>Resposta</dt><dd>HTTP {evidence.cross_status}</dd></div></dl>
+            : <>
+                {evidence.detail && <p className="evidence-detail">{evidence.detail}</p>}
+                {facts.length > 0 && <dl className="evidence-grid">{facts.map(([key, label, value]) => <div key={key}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
+            </>}
         <details className="fix"><summary><ChevronRight size={15} />Como corrigir</summary><p>{finding.remediation}</p></details>
     </article>;
 }

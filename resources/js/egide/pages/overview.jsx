@@ -49,7 +49,7 @@ function Spotlight({ scan }) {
     </section>;
 }
 export function Overview({ scans, stats, agentAvailable, spotlight }) {
-    const lab = useForm({ mode: 'laboratory', budget: 80, agent: agentAvailable });
+    const lab = useForm({ mode: 'laboratory', budget: 300, agent: agentAvailable });
     const live = spotlight && ['queued', 'running'].includes(spotlight.status);
     useEffect(() => {
         if (!live) return undefined;

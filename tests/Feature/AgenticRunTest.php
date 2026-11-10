@@ -23,6 +23,17 @@ class AgenticRunTest extends TestCase
         $this->assertNotContains('/assets/app.css', $paths);
     }
 
+    public function test_select_targets_keeps_a_graphql_endpoint_ahead_of_plain_pages(): void
+    {
+        $inventory = [];
+        foreach (range(1, 12) as $page) {
+            $inventory['GET /portal/tela'.$page] = ['path' => '/portal/tela'.$page, 'params' => [], 'body' => []];
+        }
+        $inventory['POST /servicos/graphql'] = ['method' => 'POST', 'path' => '/servicos/graphql', 'params' => [], 'body' => []];
+
+        $this->assertContains('/servicos/graphql', array_column(AgenticRun::selectTargets($inventory, 12), 'path'));
+    }
+
     public function test_should_probe_blocks_destructive_and_out_of_scope(): void
     {
         $scope = ['rules' => [['method' => '*', 'path' => '/', 'prefix' => true]], 'denied' => [], 'api' => null];

@@ -26,4 +26,11 @@ class ClientScanTest extends TestCase
         $noSource = ClientScan::sinks('const s = JSON.stringify(data); node.innerHTML = s;');
         $this->assertFalse($noSource[0]['source']);
     }
+
+    public function test_query_reading_is_detected_only_when_the_code_reads_the_query(): void
+    {
+        $this->assertFalse(ClientScan::readsQuery('const r = decodeURIComponent(location.hash.slice(1)); el.innerHTML = r;'));
+        $this->assertTrue(ClientScan::readsQuery("const q = new URLSearchParams(location.search).get('q');"));
+        $this->assertTrue(ClientScan::readsQuery('const [params] = useSearchParams();'));
+    }
 }

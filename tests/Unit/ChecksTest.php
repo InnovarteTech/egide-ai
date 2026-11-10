@@ -72,4 +72,13 @@ class ChecksTest extends TestCase
         $this->assertFalse(Checks::isProbe('/api/clients/list'));
         $this->assertFalse(Checks::isProbe('/environment'));
     }
+
+    public function test_cvss_scores_by_severity(): void
+    {
+        $this->assertSame(9.8, Checks::cvss('critical')['score']);
+        $this->assertSame('Crítico', Checks::cvss('critical')['rating']);
+        $this->assertSame(7.5, Checks::cvss('high')['score']);
+        $this->assertSame(3.1, Checks::cvss('low')['score']);
+        $this->assertSame('Informativo', Checks::cvss('x')['rating']);
+    }
 }

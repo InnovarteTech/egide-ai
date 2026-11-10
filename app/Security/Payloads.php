@@ -22,8 +22,29 @@ final class Payloads
             'graphql' => self::graphql(),
             'dom_xss' => self::domXss($context['token'] ?? self::marker('EGIDEDOM')),
             'nosql' => self::noSql(),
+            'sqli_bool' => self::sqliBool(),
+            'open_redirect' => self::openRedirect(),
             default => [],
         };
+    }
+
+    private static function sqliBool(): array
+    {
+        return array_map(fn ($pair) => ['value' => $pair[0], 'false' => $pair[1], 'oracle' => 'booleanSqlAssess', 'marker' => null], [
+            ["1' AND '1'='1'-- -", "1' AND '1'='2'-- -"],
+            ['1 AND 1=1-- -', '1 AND 1=2-- -'],
+        ]);
+    }
+
+    private static function openRedirect(): array
+    {
+        $host = self::marker('egide-').'.invalid';
+
+        return array_map(fn ($value) => ['value' => $value, 'oracle' => 'openRedirectAssess', 'marker' => $host], [
+            'https://'.$host.'/',
+            '//'.$host.'/',
+            '/\\'.$host.'/',
+        ]);
     }
 
     private static function xss(string $context): array

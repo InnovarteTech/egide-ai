@@ -1,0 +1,180 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Jobs\RunScan;
+use App\Models\Scan;
+use App\Models\Target;
+use App\Models\User;
+use App\Security\Scope;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class ScopeGateTest extends TestCase
+{
+    use RefreshDatabase;
+
+    private function environment(array $overrides = []): array
+    {
+        return [
+            'name' => 'Arena+', 'origin' => 'https://arena.example.com', 'api_origin' => 'https://api.example.com',
+            'entry_path' => '/admin/login', 'rules' => "GET /admin/*\nGET /bookings/*\nPOST /auth/login",
+            'email_a' => 'a@example.com', 'password_a' => 'test-password-a',
+            'email_b' => 'b@example.com', 'password_b' => 'test-password-b',
+            'marker_a' => 'EGIDE-0123456789ABCDEF', 'marker_b' => 'EGIDE-FEDCBA9876543210',
+            'path_a' => 'https://api.example.com/bookings/12', 'path_b' => '/bookings/34',
+            ...$overrides,
+        ];
+    }
+
+    public function test_account_role_is_stored_and_exposed_to_scope(): void
+    {
+        $this->actingAs(User::factory()->create())->post('/ambientes', $this->environment([
+            'role_a' => 'admin', 'role_b' => 'normal',
+        ]))->assertSessionHasNoErrors();
+
+        $target = Target::sole();
+        $this->assertSame('admin', $target->credentials['a']['role']);
+        $this->assertSame('normal', $target->credentials['b']['role']);
+
+        $scope = Scope::launch($target);
+        $this->assertSame('admin', $scope['accounts']['a']['role']);
+        $this->assertSame('normal', $scope['accounts']['b']['role']);
+    }
+
+    public function test_account_role_defaults_to_normal_and_rejects_bad_values(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user)->post('/ambientes', $this->environment())->assertSessionHasNoErrors();
+        $this->assertSame('normal', Target::sole()->credentials['a']['role']);
+
+        $this->actingAs(User::factory()->create())->post('/ambientes', $this->environment([
+            'origin' => 'https://b.example.com', 'api_origin' => '', 'path_a' => '/bookings/12', 'role_a' => 'root',
+        ]))->assertSessionHasErrors('role_a');
+    }
+
+    public function test_production_scope_never_carries_a_write_rule(): void
+    {
+        $user = User::factory()->create();
+        $this->actingAs($user)->post('/ambientes', $this->environment([
+            'write_test' => '1', 'environment_type' => 'production',
+        ]))->assertSessionHasNoErrors();
+        $prod = Target::sole();
+        $this->assertTrue($prod->write_test);
+        $this->assertNull(Scope::launch($prod)['write']);
+
+        $this->actingAs(User::factory()->create())->post('/ambientes', $this->environment([
+            'origin' => 'https://t.example.com', 'api_origin' => '', 'path_a' => '/bookings/12', 'path_b' => '/bookings/34',
+            'write_test' => '1', 'environment_type' => 'test',
+        ]))->assertSessionHasNoErrors();
+        $test = Target::where('origin', 'https://t.example.com')->sole();
+        $this->assertNotNull(Scope::launch($test)['write']);
+    }
+
+    private function aggressiveAllowed(array $scope): bool
+    {
+        $scan = new Scan(['scope' => $scope]);
+        $job = new RunScan('x');
+        $ref = new \ReflectionClass($job);
+        $prop = $ref->getProperty('scan');
+        $prop->setAccessible(true);
+        $prop->setValue($job, $scan);
+        $method = $ref->getMethod('aggressiveAllowed');
+        $method->setAccessible(true);
+
+        return $method->invoke($job);
+    }
+
+    private function singleAggressivePass(array $credentials, array $scope): bool
+    {
+        $scan = new Scan(['scope' => $scope, 'credentials' => $credentials]);
+        $job = new RunScan('x');
+        $ref = new \ReflectionClass($job);
+        $prop = $ref->getProperty('scan');
+        $prop->setAccessible(true);
+        $prop->setValue($job, $scan);
+        $method = $ref->getMethod('singleAggressivePass');
+        $method->setAccessible(true);
+
+        return $method->invoke($job);
+    }
+
+    private function invokePrivate(string $method, array $args)
+    {
+        $job = new RunScan('x');
+        $ref = new \ReflectionMethod($job, $method);
+        $ref->setAccessible(true);
+
+        return $ref->invoke($job, ...$args);
+    }
+
+    public function test_aggressive_gate_fails_closed(): void
+    {
+        // Explicit test → allowed. Lab → allowed. Production, missing, or garbage → blocked (fail closed).
+        $this->assertTrue($this->aggressiveAllowed(['env_type' => 'test']));
+        $this->assertTrue($this->aggressiveAllowed(['lab' => true]));
+        $this->assertFalse($this->aggressiveAllowed(['env_type' => 'production']));
+        $this->assertFalse($this->aggressiveAllowed([]));
+        $this->assertFalse($this->aggressiveAllowed(['env_type' => 'homolog']));
+        $this->assertFalse($this->aggressiveAllowed(['env_type' => null]));
+    }
+
+    public function test_single_account_aggressive_sweep_runs_only_in_test_env(): void
+    {
+        // One test account + explicit test env → single-identity battery (injection/SSRF/unauth) runs.
+        $this->assertTrue($this->singleAggressivePass(['a' => ['email' => 'a@x']], ['env_type' => 'test']));
+        // One account + production → map only, no aggressive sweep (fail closed).
+        $this->assertFalse($this->singleAggressivePass(['a' => ['email' => 'a@x']], ['env_type' => 'production']));
+        // Account B present → the two-account exploration path owns the battery, not this gate.
+        $this->assertFalse($this->singleAggressivePass(
+            ['a' => ['email' => 'a@x'], 'b' => ['email' => 'b@x']], ['env_type' => 'test']
+        ));
+    }
+
+    public function test_destructive_route_filter_covers_pt_br_and_english_verbs(): void
+    {
+        foreach ([
+            '/usuarios/excluir', '/conta/deletar', '/item/remove', '/sessao/logout', '/user/desativar',
+            '/registro/inativar', '/acesso/bloquear', '/cadastro/descadastrar', '/pedido/cancelar',
+            '/token/revoke', '/senha/reset', '/perfil/sair', '/dado/apagar',
+        ] as $route) {
+            $this->assertTrue($this->invokePrivate('destructiveRoute', [$route]), $route.' deve ser destrutiva');
+        }
+        foreach (['/bookings/12', '/servicos/busca?q=1', '/painel/dados', '/relatorio/export', '/pedidos/123'] as $route) {
+            $this->assertFalse($this->invokePrivate('destructiveRoute', [$route]), $route.' nao deve ser destrutiva');
+        }
+    }
+
+    public function test_production_environment_skips_aggressive_checks(): void
+    {
+        $user = User::factory()->create();
+        // Fail-safe default: a target created without an explicit choice is PRODUCTION → not aggressive-eligible.
+        $this->actingAs($user)->post('/ambientes', $this->environment())->assertSessionHasNoErrors();
+        $default = Target::sole();
+        $this->assertSame('production', $default->environment_type);
+        $this->assertSame('production', Scope::launch($default)['env_type']);
+        $this->assertFalse($this->aggressiveAllowed(Scope::launch($default)));
+
+        // Opting into test/homologation explicitly unlocks the aggressive battery.
+        $this->actingAs(User::factory()->create())->post('/ambientes', $this->environment([
+            'origin' => 'https://t.example.com', 'api_origin' => '', 'path_a' => '/bookings/12', 'environment_type' => 'test',
+        ]))->assertSessionHasNoErrors();
+        $test = Target::where('origin', 'https://t.example.com')->sole();
+        $this->assertSame('test', $test->environment_type);
+        $this->assertTrue($this->aggressiveAllowed(Scope::launch($test)));
+
+        $this->actingAs(User::factory()->create())->post('/ambientes', $this->environment([
+            'origin' => 'https://prod.example.com', 'api_origin' => '', 'path_a' => '/bookings/12',
+            'environment_type' => 'production',
+        ]))->assertSessionHasNoErrors();
+        $prod = Target::where('origin', 'https://prod.example.com')->sole();
+        $this->assertSame('production', $prod->environment_type);
+        $this->assertSame('production', Scope::launch($prod)['env_type']);
+        $this->assertFalse($this->aggressiveAllowed(Scope::launch($prod)));
+
+        $this->actingAs(User::factory()->create())->post('/ambientes', $this->environment([
+            'origin' => 'https://c.example.com', 'api_origin' => '', 'path_a' => '/bookings/12',
+            'environment_type' => 'staging',
+        ]))->assertSessionHasErrors('environment_type');
+    }
+}

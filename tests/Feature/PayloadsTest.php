@@ -85,6 +85,34 @@ class PayloadsTest extends TestCase
         $this->assertTrue($hasOnerror, 'deve ter variante img/onerror');
     }
 
+    public function test_boolean_sqli_payloads_are_equal_length_true_false_pairs(): void
+    {
+        $items = Payloads::for('sqli_bool', 'query');
+
+        $this->assertNotEmpty($items);
+        foreach ($items as $item) {
+            $this->assertSame('booleanSqlAssess', $item['oracle']);
+            $this->assertNotSame($item['value'], $item['false']);
+            $this->assertSame(strlen($item['value']), strlen($item['false']), 'reflexão só se cancela com o mesmo tamanho');
+        }
+        $this->assertNotEmpty(array_filter(array_column($items, 'value'), fn ($value) => str_contains($value, "'")), 'precisa de par em contexto de string');
+    }
+
+    public function test_open_redirect_payloads_target_one_unresolvable_host_per_call(): void
+    {
+        $items = Payloads::for('open_redirect', 'query');
+        $hosts = array_values(array_unique(array_column($items, 'marker')));
+
+        $this->assertNotEmpty($items);
+        $this->assertCount(1, $hosts);
+        $this->assertStringEndsWith('.invalid', $hosts[0]);
+        foreach ($items as $item) {
+            $this->assertSame('openRedirectAssess', $item['oracle']);
+            $this->assertStringContainsString($hosts[0], $item['value']);
+        }
+        $this->assertNotSame($hosts[0], Payloads::for('open_redirect', 'query')[0]['marker']);
+    }
+
     public function test_nosql_payload_has_operator(): void
     {
         $items = Payloads::for('nosql', 'query');
