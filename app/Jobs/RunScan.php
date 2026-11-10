@@ -133,6 +133,10 @@ class RunScan implements ShouldQueue
                     $statuses[] = (int) ($probe['status'] ?? 0);
                 }
                 $assessment = $this->authRateAssess($check['path'], $statuses);
+                if ($assessment['verdict'] === 'falha') {
+                    $assessment = ['verdict' => 'nao_testado', 'finding' => null];
+                    $this->scan->event('test', 'Limite de login não confirmado', "A sonda GET em {$check['path']} não dispara tentativa real de login; confirmar limite exige envio de credenciais (POST).");
+                }
                 $this->cover('AuthCheck · sem limite de tentativas', $check['path'], $assessment['verdict']);
                 if ($assessment['finding']) {
                     $this->scan->findings()->create($assessment['finding']);

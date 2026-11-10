@@ -74,6 +74,7 @@ class AgenticLabTest extends TestCase
             'GET /servicos/vulneravel/busca' => ['method' => 'GET', 'path' => '/servicos/vulneravel/busca', 'params' => ['q'], 'body' => [], 'auth' => true, 'seen_in' => 'xhr'],
             'GET /servicos/vulneravel/consulta' => ['method' => 'GET', 'path' => '/servicos/vulneravel/consulta', 'params' => ['id'], 'body' => [], 'auth' => true, 'seen_in' => 'xhr'],
             'GET /servicos/vulneravel/integrador' => ['method' => 'GET', 'path' => '/servicos/vulneravel/integrador', 'params' => ['url'], 'body' => [], 'auth' => true, 'seen_in' => 'xhr'],
+            'POST /servicos/vulneravel/login' => ['method' => 'POST', 'path' => '/servicos/vulneravel/login', 'params' => [], 'body' => ['email', 'senha'], 'auth' => false, 'seen_in' => 'xhr'],
         ];
 
         $reflection = new \ReflectionClass(RunScan::class);
@@ -110,5 +111,11 @@ class AgenticLabTest extends TestCase
     {
         $scan = $this->runLoop(vulnerable: true, escaping: true);
         $this->assertNotContains('InjectionCheck · XSS refletido', $scan->findings()->pluck('category')->all());
+    }
+
+    public function test_get_probes_never_assert_login_rate_limit(): void
+    {
+        $scan = $this->runLoop(vulnerable: true);
+        $this->assertNotContains('AuthCheck · sem limite de tentativas', $scan->findings()->pluck('category')->all());
     }
 }

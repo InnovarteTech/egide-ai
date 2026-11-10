@@ -72,7 +72,7 @@ final class AgenticRun
         $seen = [];
         foreach ($inventory as $entry) {
             $path = (string) ($entry['path'] ?? '');
-            if ($path !== '' && ! isset($seen[$path]) && ! self::destructive($path) && preg_match('~/(auth|login|entrar|session|token|oauth|signin)~i', $path)) {
+            if ($path !== '' && ! isset($seen[$path]) && ! self::destructive($path) && preg_match('~(login|sign-?in|entrar|autenticar)~i', $path)) {
                 $seen[$path] = true;
                 $checks[] = ['check' => 'rate', 'path' => $path];
             }

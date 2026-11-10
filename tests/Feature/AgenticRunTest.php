@@ -48,6 +48,21 @@ class AgenticRunTest extends TestCase
         $this->assertSame([], AgenticRun::authChecks(['GET /x' => ['path' => '/x']], null));
     }
 
+    public function test_auth_checks_only_match_login_submit_paths(): void
+    {
+        $inventory = [
+            'POST /api/auth/login' => ['path' => '/api/auth/login'],
+            'GET /api/auth/me' => ['path' => '/api/auth/me'],
+            'GET /api/tenant/current' => ['path' => '/api/tenant/current'],
+            'POST /admin/login' => ['path' => '/admin/login'],
+        ];
+        $paths = array_column(AgenticRun::authChecks($inventory, null), 'path');
+        $this->assertContains('/api/auth/login', $paths);
+        $this->assertContains('/admin/login', $paths);
+        $this->assertNotContains('/api/auth/me', $paths);
+        $this->assertNotContains('/api/tenant/current', $paths);
+    }
+
     public function test_auth_checks_skip_destructive_auth_routes(): void
     {
         $inventory = [
