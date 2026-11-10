@@ -405,6 +405,8 @@ def probe(data):
                 raise ValueError("Campo de corpo inválido")
             method = "POST"
             body = {key: value}
+    if url is None and data.get("direct"):
+        url = actor_origin().rstrip("/") + path
     qs = build_query(query)
     command = {"kind": "probe", "path": path + qs, "origin": actor_origin(), "markers": data.get("markers", []), "anon": bool(data.get("anon"))}
     if url:

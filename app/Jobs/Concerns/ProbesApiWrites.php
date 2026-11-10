@@ -84,7 +84,7 @@ trait ProbesApiWrites
             return;
         }
         $count = 30;
-        $probe = $this->runner('/probe', ['path' => $path, 'method' => 'POST', 'raw_body' => ['query' => ApiOracles::aliasFlood('faturas', '', $count)], 'markers' => []]);
+        $probe = $this->runner('/probe', ['path' => $path, 'method' => 'POST', 'direct' => true, 'raw_body' => ['query' => ApiOracles::aliasFlood('faturas', '', $count)], 'markers' => []]);
         $this->observe($this->frameDue());
         $sample = (string) ($probe['sample'] ?? '');
         $data = json_decode($sample, true);
