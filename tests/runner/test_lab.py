@@ -46,6 +46,15 @@ class LabTest(unittest.TestCase):
         finally:
             connection.close()
 
+    def method(self, verb, path):
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=5)
+        try:
+            connection.request(verb, path)
+            response = connection.getresponse()
+            return response.status, response.read().decode()
+        finally:
+            connection.close()
+
     def test_vulnerable_report_leaks_a_framework_stack_trace_on_bad_input(self):
         status, body, _ = self.get("/servicos/vulneravel/relatorio?mes=" + quote("1'><svg"))
         self.assertEqual(status, 500)
@@ -76,6 +85,53 @@ class LabTest(unittest.TestCase):
         status, body, _ = self.get("/corrigido/swagger.json")
         self.assertEqual(status, 404)
         self.assertNotIn("paths", body)
+
+    def test_vulnerable_redeem_has_no_dedup_so_the_same_token_wins_twice(self):
+        first = self.post_json("/servicos/vulneravel/resgatar", {"token": "egideRCtest"})
+        second = self.post_json("/servicos/vulneravel/resgatar", {"token": "egideRCtest"})
+        self.assertEqual(first[0], 200)
+        self.assertEqual(second[0], 200)
+
+    def test_fixed_redeem_dedups_the_same_token(self):
+        first = self.post_json("/servicos/corrigido/resgatar", {"token": "egideRCtest"})
+        second = self.post_json("/servicos/corrigido/resgatar", {"token": "egideRCtest"})
+        self.assertEqual(first[0], 200)
+        self.assertEqual(second[0], 409)
+
+    def test_vulnerable_accepts_anonymous_delete_write(self):
+        status, body = self.method("DELETE", "/servicos/vulneravel/reservas/ab12cd34")
+        self.assertEqual(status, 200)
+        self.assertIn("removido", body)
+
+    def test_fixed_rejects_anonymous_delete_write(self):
+        status, _ = self.method("DELETE", "/servicos/corrigido/reservas/ab12cd34")
+        self.assertEqual(status, 401)
+
+    def test_vulnerable_preferences_pollutes_the_prototype_and_contaminates_a_fresh_response(self):
+        self.post_json("/servicos/vulneravel/preferencias", {"__proto__": {"egidePoluido": "egidePPcafe"}})
+        status, body, _ = self.get("/servicos/vulneravel/preferencias")
+        self.assertEqual(status, 200)
+        self.assertIn("egidePPcafe", body)
+
+    def test_fixed_preferences_ignores_proto_injection(self):
+        self.post_json("/servicos/corrigido/preferencias", {"__proto__": {"egidePoluido": "egidePPcafe"}})
+        status, body, _ = self.get("/servicos/corrigido/preferencias")
+        self.assertEqual(status, 200)
+        self.assertNotIn("egidePPcafe", body)
+
+    def test_vulnerable_graphql_runs_a_whole_alias_batch_in_one_request(self):
+        query = "{" + " ".join(f"egideAlias{i}: faturas" for i in range(30)) + "}"
+        status, body = self.post_json("/servicos/vulneravel/graphql", {"query": query})
+        self.assertEqual(status, 200)
+        data = json.loads(body)["data"]
+        self.assertEqual(len([k for k in data if k.startswith("egideAlias")]), 30)
+
+    def test_fixed_graphql_caps_the_alias_batch(self):
+        query = "{" + " ".join(f"egideAlias{i}: faturas" for i in range(30)) + "}"
+        status, body = self.post_json("/servicos/corrigido/graphql", {"query": query})
+        self.assertEqual(status, 200)
+        data = json.loads(body)["data"]
+        self.assertEqual(len([k for k in data if k.startswith("egideAlias")]), 1)
 
     def test_vulnerable_file_download_follows_traversal_with_a_synthetic_passwd(self):
         status, body, _ = self.get("/servicos/vulneravel/arquivo?file=" + quote("../../../../../../etc/passwd", safe=""))

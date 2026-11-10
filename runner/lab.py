@@ -26,6 +26,7 @@ def reset():
     sessions.clear()
     confirmations.clear()
     invoices.clear()
+    lab_services.reset_state()
     privileged.clear()
     privileged.update({"marcador": "EGIDE-" + secrets.token_hex(6).upper(), "relatorio": "Receita consolidada de todas as empresas do tenant"})
     for actor in ("a", "b"):
@@ -215,6 +216,17 @@ document.getElementById("exportar").onclick = async () => {{
 }};
 </script>
 """))
+
+    def do_DELETE(self):
+        reservas = re.fullmatch(r"/servicos/(vulneravel|corrigido)/reservas/([a-f0-9]{1,8})", urlsplit(self.path).path)
+        if not reservas:
+            self.reply(json.dumps({"error": "Rota indisponivel"}), 404, "application/json")
+            return
+        variant, booking = reservas.groups()
+        if variant == "corrigido" and not self.actor():
+            self.reply(json.dumps({"error": "Autenticação necessária"}), 401, "application/json")
+            return
+        self.reply(json.dumps({"ok": True, "removido": booking}), kind="application/json")
 
     def do_PATCH(self):
         match = re.fullmatch(r"/(vulneravel|corrigido)/servicos-indisponivel", self.path)

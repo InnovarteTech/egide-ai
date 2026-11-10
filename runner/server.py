@@ -379,6 +379,13 @@ def probe(data):
     inject = data.get("inject")
     method = "GET"
     body = None
+    raw = data.get("raw_body")
+    verb = data.get("method")
+    if isinstance(raw, dict):
+        body = raw
+        method = verb if verb in ("POST", "PUT", "PATCH") else "POST"
+    elif verb in ("POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"):
+        method = verb
     if isinstance(inject, dict):
         point = inject.get("point")
         value = str(inject.get("value", ""))[:300]
@@ -406,6 +413,17 @@ def probe(data):
         command["method"] = method
     if body is not None:
         command["body"] = body
+    return bridge_call(command)
+
+
+def race(data):
+    url, path = resolve_target(data["path"])
+    body = data.get("body")
+    command = {"kind": "race", "path": path, "origin": actor_origin(),
+               "method": data.get("method", "POST"), "count": int(data.get("count", 5)),
+               "body": body if isinstance(body, dict) else {}}
+    if url:
+        command["url"] = url
     return bridge_call(command)
 
 
@@ -523,6 +541,8 @@ class Handler(BaseHTTPRequestHandler):
                         result = probe(data)
                     elif self.path == "/dom_probe":
                         result = dom_probe(data)
+                    elif self.path == "/race":
+                        result = race(data)
                     elif self.path == "/fields":
                         result = fields(data)
                     elif self.path == "/write":

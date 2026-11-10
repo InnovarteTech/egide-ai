@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Jobs\RunScan;
 use App\Models\Scan;
 use App\Models\User;
+use App\Security\ApiOracles;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -161,8 +162,8 @@ class RunScanOraclesTest extends TestCase
 
     public function test_mass_assignment_persists_forbidden_field(): void
     {
-        $persisted = $this->invokePrivate('massAssess', ['/bookings/12', 'role', 'EGIDE-MA-0001',
-            ['status' => 200], ['status' => 200, 'fields' => [['key' => 'nota', 'value' => 'x'], ['key' => 'role', 'value' => 'EGIDE-MA-0001']]]]);
+        $persisted = ApiOracles::massAssignmentAssess('/bookings/12', 'role', 'EGIDE-MA-0001',
+            ['status' => 200], ['status' => 200, 'fields' => [['key' => 'nota', 'value' => 'x'], ['key' => 'role', 'value' => 'EGIDE-MA-0001']]]);
         $this->assertSame('falha', $persisted['verdict']);
         $this->assertSame('critical', $persisted['finding']['severity']);
         $this->assertSame('Mass assignment · atribuição em massa', $persisted['finding']['category']);
@@ -170,18 +171,18 @@ class RunScanOraclesTest extends TestCase
         $this->assertSame('/bookings/12', $persisted['finding']['evidence']['path']);
 
         // Our proxy blocked the write (budget/scope) → could not test, NOT "protegido".
-        $blocked = $this->invokePrivate('massAssess', ['/bookings/12', 'role', 'EGIDE-MA-0001',
-            ['status' => 403, 'blocked' => true], ['status' => 200, 'fields' => [['key' => 'role', 'value' => 'user']]]]);
+        $blocked = ApiOracles::massAssignmentAssess('/bookings/12', 'role', 'EGIDE-MA-0001',
+            ['status' => 403, 'blocked' => true], ['status' => 200, 'fields' => [['key' => 'role', 'value' => 'user']]]);
         $this->assertSame('nao_testado', $blocked['verdict']);
         $this->assertNull($blocked['finding']);
 
         // Field absent / unchanged after the write → server ignored it, protected.
-        $ignored = $this->invokePrivate('massAssess', ['/bookings/12', 'role', 'EGIDE-MA-0001',
-            ['status' => 200], ['status' => 200, 'fields' => [['key' => 'nota', 'value' => 'x']]]]);
+        $ignored = ApiOracles::massAssignmentAssess('/bookings/12', 'role', 'EGIDE-MA-0001',
+            ['status' => 200], ['status' => 200, 'fields' => [['key' => 'nota', 'value' => 'x']]]);
         $this->assertSame('protegido', $ignored['verdict']);
 
         // No readable record after → cannot conclude.
-        $noRead = $this->invokePrivate('massAssess', ['/bookings/12', 'role', 'EGIDE-MA-0001', ['status' => 200], ['status' => 500]]);
+        $noRead = ApiOracles::massAssignmentAssess('/bookings/12', 'role', 'EGIDE-MA-0001', ['status' => 200], ['status' => 500]);
         $this->assertSame('nao_testado', $noRead['verdict']);
     }
 

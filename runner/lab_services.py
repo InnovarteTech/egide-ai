@@ -5,6 +5,7 @@ import posixpath
 import re
 import socket
 import sqlite3
+import threading
 import time
 import urllib.request
 from urllib.parse import parse_qs, quote, urlsplit
@@ -36,6 +37,16 @@ STACK_TRACE = (
     "#2 /var/www/html/vendor/laravel/framework/src/Illuminate/Routing/Router.php(799): Illuminate\\Routing\\Route->run()\n"
     "#3 {main}"
 )
+
+POLLUTED = {}
+REDEEMED = set()
+_REDEEM_LOCK = threading.Lock()
+
+
+def reset_state():
+    POLLUTED.clear()
+    with _REDEEM_LOCK:
+        REDEEMED.clear()
 
 
 def public_host(url):
@@ -152,6 +163,13 @@ def get(lab, path, page):
             nome = TEMPLATE_EXPRESSION.sub(lambda found: str(int(found.group(1)) * int(found.group(2))), nome)
         lab.reply(page(f"<small>MENSAGEM</small><h1>Olá, {html.escape(nome)}</h1><p>Seu boleto vence amanhã.</p>"))
         return True
+    preferencias = re.fullmatch(r"/servicos/(vulneravel|corrigido)/preferencias", path)
+    if preferencias:
+        base = {"tema": "claro", "idioma": "pt-BR"}
+        if preferencias.group(1) == "vulneravel":
+            base.update({k: v for k, v in POLLUTED.items() if isinstance(v, str)})
+        lab.reply(json.dumps(base), kind="application/json")
+        return True
     relatorio = re.fullmatch(r"/servicos/(vulneravel|corrigido)/relatorio", path)
     if relatorio:
         mes = parse_qs(urlsplit(lab.path).query).get("mes", [""])[0][:200]
@@ -191,10 +209,49 @@ def post(lab, path):
             lab.reply(json.dumps({"errors": [{"message": "JSON inválido"}]}), 400, "application/json")
             return True
         query = str(body.get("query", "")) if isinstance(body, dict) else ""
+        aliases = re.findall(r"(egideAlias\d+)\s*:", query)
+        if aliases:
+            if graphql.group(1) == "vulneravel":
+                lab.reply(json.dumps({"data": {alias: [] for alias in aliases}}), kind="application/json")
+            else:
+                lab.reply(json.dumps({"data": {aliases[0]: []}}), kind="application/json")
+            return True
         if "__schema" in query or "__type" in query:
             answer = {"data": {"__schema": SCHEMA}} if graphql.group(1) == "vulneravel" else {"errors": [{"message": "Introspecção desativada neste ambiente"}]}
             lab.reply(json.dumps(answer), kind="application/json")
             return True
         lab.reply(json.dumps({"data": {"faturas": []}}), kind="application/json")
+        return True
+    preferencias = re.fullmatch(r"/servicos/(vulneravel|corrigido)/preferencias", urlsplit(lab.path).path)
+    if preferencias:
+        try:
+            body = json.loads(lab.rfile.read(min(int(lab.headers.get("Content-Length", 0)), 4096)) or b"{}")
+        except ValueError:
+            lab.reply(json.dumps({"erro": "JSON inválido"}), 400, "application/json")
+            return True
+        proto = body.get("__proto__") if isinstance(body, dict) else None
+        if preferencias.group(1) == "vulneravel" and isinstance(proto, dict):
+            POLLUTED.update({k: v for k, v in proto.items() if isinstance(v, str)})
+        lab.reply(json.dumps({"ok": True}), kind="application/json")
+        return True
+    resgatar = re.fullmatch(r"/servicos/(vulneravel|corrigido)/resgatar", urlsplit(lab.path).path)
+    if resgatar:
+        try:
+            body = json.loads(lab.rfile.read(min(int(lab.headers.get("Content-Length", 0)), 1024)) or b"{}")
+        except ValueError:
+            lab.reply(json.dumps({"erro": "JSON inválido"}), 400, "application/json")
+            return True
+        token = str(body.get("token", "")) if isinstance(body, dict) else ""
+        if resgatar.group(1) == "corrigido":
+            with _REDEEM_LOCK:
+                if token in REDEEMED:
+                    lab.reply(json.dumps({"erro": "Cupom já resgatado"}), 409, "application/json")
+                    return True
+                REDEEMED.add(token)
+            time.sleep(0.05)
+            lab.reply(json.dumps({"ok": True, "resgatado": token[:12]}), kind="application/json")
+            return True
+        time.sleep(0.05)
+        lab.reply(json.dumps({"ok": True, "resgatado": token[:12]}), kind="application/json")
         return True
     return False

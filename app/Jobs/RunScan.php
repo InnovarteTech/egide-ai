@@ -8,6 +8,7 @@ use App\Models\CollaboratorHit;
 use App\Models\Scan;
 use App\Models\Workspace;
 use App\Security\AgenticRun;
+use App\Security\ApiOracles;
 use App\Security\AttackPoints;
 use App\Security\Checks;
 use App\Security\ClientScan;
@@ -216,8 +217,89 @@ class RunScan implements ShouldQueue
                 $this->softCheck('Varredura '.$point['class'].' '.$point['point'], fn () => $this->probePoint($endpoint, $point, $callback, $budget['max_payloads_per_point']));
             }
         }
+        foreach ($this->inventory as $endpoint) {
+            if (($endpoint['method'] ?? '') === 'POST' && preg_match('~/graphql/?$~i', (string) ($endpoint['path'] ?? ''))) {
+                $this->softCheck('GraphQL batching', fn () => $this->graphqlBatchTest($endpoint['path']));
+            }
+        }
         $this->authBattery();
         $this->softCheck('Caça agêntica', fn () => $this->hunt($this->hunter($planner), $callback));
+    }
+
+    private function graphqlBatchTest(string $path): void
+    {
+        if (! $this->inScope($path) || ! $this->budgetAllows(2)) {
+            return;
+        }
+        $count = 30;
+        $probe = $this->runner('/probe', ['path' => $path, 'method' => 'POST', 'raw_body' => ['query' => ApiOracles::aliasFlood('faturas', '', $count)], 'markers' => []]);
+        $this->observe($this->frameDue());
+        $data = json_decode((string) ($probe['sample'] ?? ''), true);
+        $executed = is_array($data['data'] ?? null)
+            ? count(array_filter(array_keys($data['data']), fn ($key) => preg_match('~^egideAlias\d+$~', (string) $key)))
+            : 0;
+        $assessment = ApiOracles::graphqlBatchingAssess($path, $count, $executed);
+        $this->cover('InventoryCheck · GraphQL batching', $path, $assessment['verdict']);
+        if ($assessment['finding']) {
+            $this->scan->findings()->create($assessment['finding']);
+            $this->scan->event('finding', 'GraphQL executa lote de operações', $executed.' operações rodaram numa requisição só em '.$path.'.', $assessment['finding']['evidence']);
+        }
+    }
+
+    private function prototypePollutionTest(string $writePath, string $readPath): void
+    {
+        if (! $this->aggressiveAllowed() || ! $this->inScope($writePath) || ! $this->inScope($readPath) || ! $this->budgetAllows(2)) {
+            return;
+        }
+        $marker = 'egidePP'.bin2hex(random_bytes(4));
+        $this->runner('/probe', ['path' => $writePath, 'method' => 'POST', 'raw_body' => ['__proto__' => ['egidePoluido' => $marker]], 'markers' => []]);
+        $this->observe(false);
+        $probe = $this->runner('/probe', ['path' => $readPath, 'markers' => [$marker]]);
+        $this->observe(false);
+        $assessment = ApiOracles::prototypePollutionAssess($writePath, $marker, (string) ($probe['sample'] ?? ''));
+        $this->cover('InjectionCheck · prototype pollution', $writePath, $assessment['verdict']);
+        if ($assessment['finding']) {
+            $this->scan->findings()->create($assessment['finding']);
+            $this->scan->event('finding', 'Prototype pollution confirmada', 'Propriedade injetada via __proto__ contaminou a resposta de '.$readPath.'.', $assessment['finding']['evidence']);
+        }
+    }
+
+    private function verbMatrixTest(string $path): void
+    {
+        if (! $this->aggressiveAllowed()) {
+            return;
+        }
+        foreach (['DELETE', 'PUT', 'PATCH'] as $method) {
+            if (! $this->budgetAllows(1) || ! Scope::allows($this->scan->scope, $method, $path)) {
+                continue;
+            }
+            $probe = $this->runner('/probe', ['path' => $path, 'method' => $method, 'anon' => true, 'markers' => []]);
+            $this->observe(false);
+            $assessment = ApiOracles::unauthorizedWriteAssess($path, $method, (int) ($probe['status'] ?? 0));
+            $this->cover('AuthCheck · método de escrita sem sessão', $path, $assessment['verdict']);
+            if ($assessment['finding']) {
+                $this->scan->findings()->create($assessment['finding']);
+                $this->scan->event('finding', 'Escrita sem autenticação aceita', $method.' anônimo aceito em '.$path.'.', $assessment['finding']['evidence']);
+
+                return;
+            }
+        }
+    }
+
+    private function raceTest(string $path): void
+    {
+        if (! $this->aggressiveAllowed() || ! Scope::allows($this->scan->scope, 'POST', $path) || ! $this->budgetAllows(6)) {
+            return;
+        }
+        $result = $this->runner('/race', ['path' => $path, 'method' => 'POST', 'count' => 5, 'body' => ['token' => 'egideRC'.bin2hex(random_bytes(4))]]);
+        $this->observe(false);
+        $ok = (int) ($result['ok'] ?? 0);
+        $assessment = ApiOracles::raceAssess($path, $ok);
+        $this->cover('LogicCheck · race condition (TOCTOU)', $path, $assessment['verdict']);
+        if ($assessment['finding']) {
+            $this->scan->findings()->create($assessment['finding']);
+            $this->scan->event('finding', 'Race condition confirmada', $ok.' de 5 requisições paralelas aceitas em '.$path.'.', $assessment['finding']['evidence']);
+        }
     }
 
     private function authBattery(): void
@@ -369,30 +451,6 @@ class RunScan implements ShouldQueue
         }
 
         return ['verdict' => 'nao_testado', 'finding' => null];
-    }
-
-    private function massAssess(string $path, string $field, string $sentinel, array $write, array $after): array
-    {
-        if (! empty($write['blocked']) || ($write['status'] ?? 0) === 0) {
-            return ['verdict' => 'nao_testado', 'finding' => null];
-        }
-        if (($after['status'] ?? 0) !== 200) {
-            return ['verdict' => 'nao_testado', 'finding' => null];
-        }
-        $value = collect($after['fields'] ?? [])->firstWhere('key', $field)['value'] ?? null;
-        if ($value === $sentinel) {
-            return ['verdict' => 'falha', 'finding' => [
-                'title' => 'Servidor aceita campo privilegiado fora do formulário', 'severity' => 'critical',
-                'category' => 'Mass assignment · atribuição em massa',
-                'evidence' => [
-                    'method' => 'PATCH', 'path' => $path, 'field' => $field, 'persisted' => true,
-                    'write_status' => $write['status'] ?? null, 'reference' => 'OWASP API3:2023 · CWE-915',
-                ],
-                'remediation' => 'Aceite no servidor apenas os campos previstos (allowlist); ignore campos como role, is_admin, tenant_id ou price enviados pelo cliente.',
-            ]];
-        }
-
-        return ['verdict' => 'protegido', 'finding' => null];
     }
 
     private function excessiveAssess(string $path, array $apiFields, string $uiText): array
@@ -600,30 +658,60 @@ class RunScan implements ShouldQueue
 
             return;
         }
-        $field = 'role';
+        $present = collect($before['fields'] ?? [])->pluck('key')->all();
+        $candidates = array_values(array_unique([
+            ...array_values(array_intersect(ApiOracles::SENSITIVE_FIELDS, $present)),
+            ...array_slice(ApiOracles::SENSITIVE_FIELDS, 0, 8),
+        ]));
+        $verdict = 'nao_testado';
+        foreach (array_slice($candidates, 0, 8) as $field) {
+            if (! $this->budgetAllows(2)) {
+                break;
+            }
+            $result = $this->massField($recordPath, $before, $field);
+            $verdict = $result === 'falha' ? 'falha' : ($result === 'protegido' ? 'protegido' : $verdict);
+            if ($result === 'falha') {
+                break;
+            }
+        }
+        $this->cover('Mass assignment · atribuição em massa', $recordPath, $verdict);
+    }
+
+    private function massField(string $recordPath, array $before, string $field): string
+    {
         $original = collect($before['fields'] ?? [])->firstWhere('key', $field)['value'] ?? null;
         $sentinel = 'EGIDE-MA-'.strtoupper(bin2hex(random_bytes(5)));
         $write = $this->runner('/write', ['path' => $recordPath, 'field' => $field, 'value' => $sentinel]);
         $after = $this->runner('/fields', ['path' => $recordPath]);
-        $assessment = $this->massAssess($recordPath, $field, $sentinel, $write, $after);
-        $this->cover('Mass assignment · atribuição em massa', $recordPath, $assessment['verdict']);
-
-        $restored = $assessment['verdict'] !== 'falha';
-        if ($assessment['verdict'] === 'falha') {
-            try {
-                $this->runner('/write', ['path' => $recordPath, 'field' => $field, 'value' => (string) ($original ?? '')]);
-                $back = collect(($this->runner('/fields', ['path' => $recordPath]))['fields'] ?? [])->firstWhere('key', $field)['value'] ?? null;
-                $restored = $back === $original || ($original === null && in_array($back, [null, ''], true));
-            } catch (Throwable) {
-                $restored = false;
-            }
+        $assessment = ApiOracles::massAssignmentAssess($recordPath, $field, $sentinel, $write, $after);
+        // Se a escrita foi aceita (2xx, não bloqueada), o campo pode ter grudado mesmo quando o
+        // re-fetch não confirmou (nao_testado) — então restaura best-effort, não só na falha.
+        $wroteOk = empty($write['blocked']) && in_array((int) ($write['status'] ?? 0), [200, 201, 202, 204], true);
+        $restored = true;
+        if ($wroteOk && $assessment['verdict'] !== 'protegido') {
+            $restored = $this->restoreField($recordPath, $field, $original);
         }
-        if ($assessment['finding']) {
-            $assessment['finding']['evidence']['restored'] = $restored;
-            $this->scan->findings()->create($assessment['finding']);
-            $this->scan->event('finding', 'Campo privilegiado aceito pelo servidor',
-                "O servidor persistiu \"{$field}\" enviado fora do formulário em {$recordPath}.".($restored ? '' : ' Atenção: o valor original pode não ter sido restaurado.'),
-                $assessment['finding']['evidence']);
+        if ($assessment['verdict'] !== 'falha') {
+            return $assessment['verdict'];
+        }
+        $assessment['finding']['evidence']['restored'] = $restored;
+        $this->scan->findings()->create($assessment['finding']);
+        $this->scan->event('finding', 'Campo privilegiado aceito pelo servidor',
+            'O servidor persistiu "'.$field.'" enviado fora do formulário em '.$recordPath.'.'.($restored ? '' : ' Atenção: o valor original pode não ter sido restaurado.'),
+            $assessment['finding']['evidence']);
+
+        return 'falha';
+    }
+
+    private function restoreField(string $recordPath, string $field, ?string $original): bool
+    {
+        try {
+            $this->runner('/write', ['path' => $recordPath, 'field' => $field, 'value' => (string) ($original ?? '')]);
+            $back = collect(($this->runner('/fields', ['path' => $recordPath]))['fields'] ?? [])->firstWhere('key', $field)['value'] ?? null;
+
+            return $back === $original || ($original === null && in_array($back, [null, ''], true));
+        } catch (Throwable) {
+            return false;
         }
     }
 
@@ -1085,6 +1173,9 @@ class RunScan implements ShouldQueue
         $this->softCheck('Enumeração de identificador', fn () => $this->idEnumTest($ownRecord['path']));
         $this->softCheck('Atribuição em massa', fn () => $this->massTest($actor, $ownRecord['path']));
         $this->softCheck('Exposição excessiva de dados', fn () => $this->excessiveTest($actor, $ownRecord['path']));
+        $this->softCheck('Prototype pollution', fn () => $this->prototypePollutionTest("/servicos/{$variant}/preferencias", "/servicos/{$variant}/preferencias"));
+        $this->softCheck('Métodos de escrita', fn () => $this->verbMatrixTest("/servicos/{$variant}/reservas/ab12cd34"));
+        $this->softCheck('Race condition', fn () => $this->raceTest("/servicos/{$variant}/resgatar"));
         foreach (["/servicos/{$variant}/busca?q=1", "/servicos/{$variant}/consulta?id=1", "/servicos/{$variant}/integrador?url=x",
             "/servicos/{$variant}/pedido?id=1", "/servicos/{$variant}/retorno?destino=/{$variant}/painel",
             "/servicos/{$variant}/arquivo?file=manual.pdf", "/servicos/{$variant}/clientes?filtro=ativos",

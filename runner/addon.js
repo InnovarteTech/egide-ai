@@ -82,7 +82,13 @@ async function collect(command) {
     const anon = command.anon === true;
     const headers = anon ? {'X-Egide-Probe':'1', 'X-Egide-Anon':'1'} : {'X-Egide-Probe':'1'};
     const init = {credentials: anon ? 'omit' : 'include', cache:'no-store', redirect:'manual', headers, signal:AbortSignal.timeout(8500)};
-    if (command.method && command.method !== 'GET') { init.method = command.method; headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(command.body || {}); }
+    if (command.method && command.method !== 'GET') {
+      init.method = command.method;
+      if (command.body !== undefined && command.method !== 'HEAD' && command.method !== 'OPTIONS') {
+        headers['Content-Type'] = 'application/json';
+        init.body = JSON.stringify(command.body);
+      }
+    }
     const t0 = Date.now();
     const response = await fetch(command.url, init);
     const result = await readProbe(response, command.markers || []);
@@ -93,7 +99,13 @@ async function collect(command) {
     const anon = command.anon === true;
     const headers = anon ? {'X-Egide-Probe':'1', 'X-Egide-Anon':'1'} : {'X-Egide-Probe':'1'};
     const init = {credentials: anon ? 'omit' : 'same-origin', cache:'no-store', redirect:'manual', headers};
-    if (command.method && command.method !== 'GET') { init.method = command.method; headers['Content-Type'] = 'application/json'; init.body = JSON.stringify(command.body || {}); }
+    if (command.method && command.method !== 'GET') {
+      init.method = command.method;
+      if (command.body !== undefined && command.method !== 'HEAD' && command.method !== 'OPTIONS') {
+        headers['Content-Type'] = 'application/json';
+        init.body = JSON.stringify(command.body);
+      }
+    }
     const code = `(async () => {
       if (location.origin !== ${JSON.stringify(command.origin)}) return {status:0, matches:[]};
       const init = ${JSON.stringify(init)};
@@ -106,6 +118,22 @@ async function collect(command) {
     })()`;
     const [value] = await browser.tabs.executeScript(tab.id, {code, runAt:'document_start'});
     return {result: value};
+  }
+  if (command?.kind === 'race' && command.path) {
+    const n = Math.min(Math.max(parseInt(command.count) || 5, 2), 8);
+    const init = {method: command.method || 'POST', credentials:'same-origin', cache:'no-store', redirect:'manual',
+      headers:{'Content-Type':'application/json','X-Egide-Probe':'1'}, body: JSON.stringify(command.body || {})};
+    const code = `(async () => {
+      if (location.origin !== ${JSON.stringify(command.origin)}) return {ok:0, count:0};
+      const init = ${JSON.stringify(init)};
+      init.signal = AbortSignal.timeout(8500);
+      const url = new URL(${JSON.stringify(command.path)}, location.origin).href;
+      const rs = await Promise.allSettled(Array.from({length:${n}}, () => content.fetch(url, init).then(r => r.status)));
+      const ok = rs.filter(r => r.status === 'fulfilled' && r.value >= 200 && r.value < 300).length;
+      return {ok, count:${n}};
+    })()`;
+    const [value] = await browser.tabs.executeScript(tab.id, {code, runAt:'document_start'});
+    return {result: value || {ok:0, count:0}};
   }
   const [value] = await browser.tabs.executeScript(tab.id, {code:snapshot});
   return value || {};
