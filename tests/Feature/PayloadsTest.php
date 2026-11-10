@@ -70,4 +70,27 @@ class PayloadsTest extends TestCase
         $value = Payloads::for('graphql', 'body')[0]['value'];
         $this->assertStringContainsString('__schema', $value);
     }
+
+    public function test_dom_xss_payload_embeds_execution_marker(): void
+    {
+        $items = Payloads::for('dom_xss', 'hash', ['token' => 'EGIDEDOMabc123']);
+        $this->assertNotEmpty($items);
+        $hasOnerror = false;
+        foreach ($items as $item) {
+            $this->assertSame('domXssAssess', $item['oracle']);
+            $this->assertStringContainsString('EGIDEDOMabc123', $item['value']);
+            $this->assertSame('EGIDEDOMabc123', $item['marker']);
+            $hasOnerror = $hasOnerror || str_contains($item['value'], 'onerror');
+        }
+        $this->assertTrue($hasOnerror, 'deve ter variante img/onerror');
+    }
+
+    public function test_nosql_payload_has_operator(): void
+    {
+        $items = Payloads::for('nosql', 'query');
+        $this->assertStringContainsString('$ne', implode(' ', array_column($items, 'value')));
+        foreach ($items as $item) {
+            $this->assertSame('noSqlAssess', $item['oracle']);
+        }
+    }
 }

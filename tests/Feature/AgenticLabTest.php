@@ -23,6 +23,11 @@ class FakeRunScan extends RunScan
 
     protected function runner(string $path, array $data = []): array
     {
+        if ($path === '/dom_probe') {
+            $token = (string) ($data['token'] ?? '');
+
+            return ['executed' => $this->vulnerable, 'token' => $this->vulnerable ? $token : null];
+        }
         if ($path !== '/probe') {
             return ['network' => [], 'actor' => 'a'];
         }
@@ -30,8 +35,18 @@ class FakeRunScan extends RunScan
         $value = is_array($inject) ? (string) ($inject['value'] ?? '') : '';
         $route = (string) ($data['path'] ?? '');
         $safe = ['sample' => 'ok', 'type' => 'application/json', 'status' => 200, 'elapsed' => 50];
+        // domXssSweep probes (no inject): entry HTML + bundle with a source-fed sink.
+        if ($value === '' && str_contains($route, 'vulneravel') && ! str_contains($route, '.js')) {
+            return ['sample' => '<html><script src="/assets/app.js"></script></html>', 'type' => 'text/html', 'status' => 200, 'elapsed' => 40];
+        }
+        if ($value === '' && str_contains($route, '.js')) {
+            return ['sample' => 'var h = location.hash.slice(1); el.dangerouslySetInnerHTML = {__html: h};', 'type' => 'application/javascript', 'status' => 200, 'elapsed' => 40];
+        }
         if (! $this->vulnerable) {
             return $safe;
+        }
+        if ((str_contains($value, '$ne') || str_contains($value, '$gt')) && str_contains($route, 'consulta')) {
+            return ['sample' => 'MongoServerError: unknown top level operator: $ne', 'type' => 'application/json', 'status' => 500, 'elapsed' => 50];
         }
         if (str_contains($value, 'egideXSS') && str_contains($route, 'busca')) {
             $reflected = $this->escaping ? htmlspecialchars($value, ENT_QUOTES) : $value;
@@ -99,6 +114,10 @@ class AgenticLabTest extends TestCase
         $method->setAccessible(true);
         $method->invoke($fake, new Planner);
 
+        $save = $reflection->getMethod('saveCoverage');
+        $save->setAccessible(true);
+        $save->invoke($fake);
+
         return $scan->fresh();
     }
 
@@ -137,5 +156,21 @@ class AgenticLabTest extends TestCase
         $this->assertContains('InjectionCheck · SQLi por erro', $categories);
         $this->assertContains('InjectionCheck · path traversal', $categories);
         $this->assertContains('InventoryCheck · GraphQL introspection', $categories);
+    }
+
+    public function test_agentic_loop_finds_dom_xss_and_nosql(): void
+    {
+        $scan = $this->runLoop(vulnerable: true);
+        $categories = $scan->findings()->pluck('category')->all();
+        $this->assertContains('InjectionCheck · DOM XSS', $categories);
+        $this->assertContains('InjectionCheck · NoSQL', $categories);
+    }
+
+    public function test_clientscan_static_coverage_never_claims_falha(): void
+    {
+        $scan = $this->runLoop(vulnerable: true);
+        $static = array_values(array_filter((array) $scan->coverage, fn ($c) => $c['check'] === 'ClientScan · sinks DOM'));
+        $this->assertNotEmpty($static);
+        $this->assertNotSame('falha', $static[0]['verdict']);
     }
 }

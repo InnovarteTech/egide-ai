@@ -409,6 +409,22 @@ def probe(data):
     return bridge_call(command)
 
 
+def dom_probe(data):
+    url, path = resolve_target(data["path"])
+    base = url or (actor_origin() + path)
+    value = str(data.get("value", ""))[:400]
+    token = data.get("token", "")
+    if not re.fullmatch(r"[A-Za-z0-9]{6,40}", str(token)):
+        raise ValueError("Token de DOM inválido")
+    if data.get("point") == "query":
+        key = data.get("key")
+        name = key if isinstance(key, str) and re.fullmatch(r"[A-Za-z0-9_.\-]{1,40}", key) else "q"
+        full = base + "?" + urllib.parse.urlencode({name: value})
+    else:
+        full = base + "#" + urllib.parse.quote(value, safe="")
+    return bridge_call({"kind": "dom_probe", "url": full, "token": token})
+
+
 def bridge_call(command):
     command["id"] = secrets.token_hex(8)
     with BRIDGE_LOCK:
@@ -505,6 +521,8 @@ class Handler(BaseHTTPRequestHandler):
                         result = act(data)
                     elif self.path == "/probe":
                         result = probe(data)
+                    elif self.path == "/dom_probe":
+                        result = dom_probe(data)
                     elif self.path == "/fields":
                         result = fields(data)
                     elif self.path == "/write":

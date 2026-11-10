@@ -61,6 +61,7 @@ final class Planner
             $points[] = ['class' => 'xss', 'point' => 'query', 'key' => $param];
             $points[] = ['class' => 'sqli_time', 'point' => 'query', 'key' => $param];
             $points[] = ['class' => 'sqli_error', 'point' => 'query', 'key' => $param];
+            $points[] = ['class' => 'nosql', 'point' => 'query', 'key' => $param];
             if (preg_match('~url|uri|link|dest|callback|webhook|redirect|next|feed|proxy~i', (string) $param)) {
                 $points[] = ['class' => 'ssrf', 'point' => 'query', 'key' => $param];
             }
@@ -112,7 +113,7 @@ final class Planner
             'properties' => ['points' => ['type' => 'array', 'items' => [
                 'type' => 'object', 'additionalProperties' => false,
                 'properties' => [
-                    'class' => ['type' => 'string', 'enum' => ['xss', 'sqli_time', 'sqli_error', 'ssrf', 'traversal', 'graphql', 'idor', 'rate', 'jwt']],
+                    'class' => ['type' => 'string', 'enum' => ['xss', 'sqli_time', 'sqli_error', 'nosql', 'ssrf', 'traversal', 'graphql', 'idor', 'rate', 'jwt']],
                     'point' => ['type' => 'string', 'enum' => ['query', 'path', 'body']],
                     'key' => ['type' => ['string', 'null']],
                 ],

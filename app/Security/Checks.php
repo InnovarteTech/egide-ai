@@ -49,6 +49,36 @@ final class Checks
         return ['verdict' => 'nao_testado', 'finding' => null];
     }
 
+    public static function domXssAssess(string $token, array $probe): array
+    {
+        if (! empty($probe['executed']) && ($probe['token'] ?? null) === $token) {
+            return ['verdict' => 'falha', 'finding' => [
+                'title' => 'XSS no DOM (execução de script confirmada no navegador)', 'severity' => 'high',
+                'category' => 'InjectionCheck · DOM XSS',
+                'evidence' => ['token' => $token, 'executed' => true, 'reference' => 'OWASP A03:2021 · CWE-79',
+                    'detail' => 'A carga injetada via fonte client-side (hash/parâmetro) executou script no DOM — confirmado por marcador de execução no navegador.'],
+                'remediation' => 'Nunca passe entrada do cliente a sinks perigosos (dangerouslySetInnerHTML, innerHTML, eval, href javascript:); use Trusted Types e sanitização no cliente.',
+            ]];
+        }
+
+        return ['verdict' => 'nao_testado', 'finding' => null];
+    }
+
+    public static function noSqlAssess(string $path, string $sample): array
+    {
+        if (preg_match('~(MongoError|MongoServerError|BSONError|CastError to ObjectId|E11000 duplicate key|unknown top level operator|MongoParseError|CouchbaseException|RethinkDBError)~i', $sample)) {
+            return ['verdict' => 'falha', 'finding' => [
+                'title' => 'Injeção NoSQL (erro do banco de documentos)', 'severity' => 'high',
+                'category' => 'InjectionCheck · NoSQL',
+                'evidence' => ['method' => 'GET', 'path' => $path, 'reference' => 'OWASP A03:2021 · CWE-943',
+                    'detail' => 'A resposta vazou um erro de banco NoSQL ao receber um operador de consulta. O conteúdo não foi armazenado.'],
+                'remediation' => 'Valide tipos e rejeite operadores ($ne, $gt, $where) na entrada; use consultas parametrizadas do driver.',
+            ]];
+        }
+
+        return ['verdict' => 'nao_testado', 'finding' => null];
+    }
+
     public static function graphqlAssess(string $path, string $sample): array
     {
         $introspected = str_contains($sample, '"data"')

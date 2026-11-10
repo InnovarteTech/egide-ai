@@ -40,6 +40,17 @@ async function collect(command) {
     await browser.tabs.update(tab.id, {url:command.url});
     return {result:{ok:true}};
   }
+  if (command?.kind === 'dom_probe') {
+    await browser.tabs.update(tab.id, {url: command.url});
+    await new Promise(resolve => setTimeout(resolve, 1800));
+    const code = `(() => { try { return {executed: window.__EGIDE_XSS === ${JSON.stringify(command.token)}, token: (window.__EGIDE_XSS || null)}; } catch (e) { return {executed:false, token:null}; } })()`;
+    try {
+      const [value] = await browser.tabs.executeScript(tab.id, {code, runAt:'document_idle'});
+      return {result: value || {executed:false, token:null}};
+    } catch (e) {
+      return {result:{executed:false, token:null, error:String(e).slice(0,80)}};
+    }
+  }
   if (command?.kind === 'fields' && command.url) {
     if (new URL(tab.url).origin !== command.origin) return {result:{status:0, fields:[]}};
     const response = await fetch(command.url, {credentials:'include', cache:'no-store', redirect:'manual', headers:{'Accept':'application/json','X-Egide-Probe':'1'}, signal:AbortSignal.timeout(5500)});
