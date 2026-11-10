@@ -430,7 +430,7 @@ def bridge_call(command):
     with BRIDGE_LOCK:
         BRIDGE.update(pending=command, result=None)
     try:
-        for _ in range(44):
+        for _ in range(180):
             time.sleep(.18)
             with BRIDGE_LOCK:
                 if BRIDGE["result"] is not None:
@@ -445,7 +445,7 @@ def mailbox(email):
     if not SESSION["lab"] or not re.fullmatch(r"[ab]-[0-9a-f-]{8,40}@egide\.test", email):
         raise ValueError("Caixa postal fora do laboratório")
     params = urllib.parse.urlencode({"query": "to:" + email})
-    deadline = time.monotonic() + 30
+    deadline = time.monotonic() + 55
     while time.monotonic() < deadline:
         try:
             with urllib.request.urlopen("http://mailpit:8025/api/v1/search?" + params, timeout=4) as response:
