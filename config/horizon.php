@@ -207,7 +207,7 @@ return [
             'maxJobs' => 0,
             'memory' => 128,
             'tries' => 1,
-            'timeout' => 870,
+            'timeout' => (int) env('EGIDE_SESSION_MINUTES', 130) * 60 + 60,
             'nice' => 0,
         ],
     ],

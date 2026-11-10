@@ -26,10 +26,15 @@ return [
         'claude_local' => 'Claude local (Claude Code)',
         'codex' => 'Codex local',
     ],
+    'session_minutes' => (int) env('EGIDE_SESSION_MINUTES', 130),
     'agentic' => [
         'max_endpoints' => (int) env('EGIDE_AGENTIC_MAX_ENDPOINTS', 12),
         'max_payloads_per_point' => (int) env('EGIDE_AGENTIC_MAX_PAYLOADS', 6),
-        'max_escalation_depth' => (int) env('EGIDE_AGENTIC_MAX_DEPTH', 2),
-        'max_strategist_calls' => (int) env('EGIDE_AGENTIC_MAX_STRATEGIST', 40),
+        'max_escalation_depth' => (int) env('EGIDE_AGENTIC_MAX_DEPTH', 3),
+        'max_strategist_calls' => (int) env('EGIDE_AGENTIC_MAX_STRATEGIST', 80),
+    ],
+    'hunt' => [
+        'max_steps' => (int) env('EGIDE_HUNT_MAX_STEPS', 60),
+        'demo_max_steps' => (int) env('EGIDE_HUNT_DEMO_MAX_STEPS', 20),
     ],
 ];

@@ -13,6 +13,7 @@ use App\Security\Demo;
 use App\Security\Engine;
 use App\Security\Scope;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -39,6 +40,7 @@ class ConsoleController extends Controller
                 'engine' => config('egide.providers.'.$spotlight->provider, $spotlight->provider),
                 'risk' => $spotlight->summary['risk'] ?? null,
                 'frame' => Storage::exists('frames/'.$spotlight->id.'.jpg'),
+                'frame_at' => $this->frameAt($spotlight->id),
                 'events' => $spotlight->events()->whereIn('type', ['browser', 'test', 'finding', 'verified', 'identity'])
                     ->where('title', '!=', 'Aguardando decisão da IA')->latest('id')->limit(5)->get(['id', 'type', 'title', 'detail', 'created_at']),
                 'severity' => $spotlight->findings()->get()->countBy('severity'),
@@ -318,7 +320,7 @@ class ConsoleController extends Controller
         $data = $request->validate([
             'mode' => 'required|in:laboratory,retest,external',
             'target_id' => 'nullable|required_if:mode,external|integer',
-            'budget' => 'nullable|integer|min:10|max:'.($request->input('mode') === 'external' ? 180 : 300),
+            'budget' => 'nullable|integer|min:10|max:'.($request->input('mode') === 'external' ? 2000 : 600),
             'authorized' => 'accepted_if:mode,external',
             'agent' => 'sometimes|boolean',
             'retest_of' => 'nullable|uuid|prohibited_unless:mode,external',
@@ -394,7 +396,7 @@ class ConsoleController extends Controller
                 'provider' => $provider,
                 'model' => $model,
                 'engine_key' => $engineKey,
-                'credentials' => $target?->credentials, 'budget' => $data['budget'] ?? 80,
+                'credentials' => $target?->credentials, 'budget' => Scope::budget($data['mode'], $target?->environment_type, (int) ($data['budget'] ?? 80)),
             ]);
             $scan->event('system', 'Sessão recebida', 'Aguardando o executor na fila Horizon.');
             RunScan::dispatch($scan->id)->afterCommit();
@@ -533,7 +535,15 @@ class ConsoleController extends Controller
         return [
             'scan' => $scan->toArray(), 'events' => $events, 'findings' => $scan->findings()->get(),
             'frame' => Storage::exists('frames/'.$scan->id.'.jpg'),
+            'frame_at' => $this->frameAt($scan->id),
         ];
+    }
+
+    private function frameAt(int|string $scanId): ?string
+    {
+        $path = 'frames/'.$scanId.'.jpg';
+
+        return Storage::exists($path) ? Carbon::createFromTimestamp(Storage::lastModified($path))->toIso8601String() : null;
     }
 
     private function workspace(Request $request): Workspace

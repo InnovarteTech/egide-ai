@@ -44,6 +44,14 @@ export function formatDate(value, time = true) {
 export function formatTime(value) {
     return new Date(value).toLocaleTimeString('pt-BR', { hour12: false });
 }
+export function captureAge(value) {
+    if (!value) return null;
+    const secs = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000));
+    if (secs < 3) return 'agora mesmo';
+    if (secs < 60) return 'há ' + secs + ' s';
+    const mins = Math.round(secs / 60);
+    return 'há ' + mins + ' min';
+}
 export function scanLabel(scan) {
     return 'PT-' + scan.id.slice(-6).toUpperCase();
 }

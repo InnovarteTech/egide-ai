@@ -46,6 +46,37 @@ class LabTest(unittest.TestCase):
         finally:
             connection.close()
 
+    def test_vulnerable_report_leaks_a_framework_stack_trace_on_bad_input(self):
+        status, body, _ = self.get("/servicos/vulneravel/relatorio?mes=" + quote("1'><svg"))
+        self.assertEqual(status, 500)
+        self.assertIn("Stack trace:", body)
+        self.assertIn("vendor/laravel/framework", body)
+
+    def test_vulnerable_report_stays_clean_for_a_valid_month(self):
+        status, body, _ = self.get("/servicos/vulneravel/relatorio?mes=3")
+        self.assertEqual(status, 200)
+        self.assertNotIn("Stack trace", body)
+        self.assertEqual(json.loads(body)["faturas"], 0)
+
+    def test_fixed_report_rejects_bad_input_without_a_stack_trace(self):
+        status, body, _ = self.get("/servicos/corrigido/relatorio?mes=" + quote("1'><svg"))
+        self.assertEqual(status, 422)
+        self.assertNotIn("Stack trace", body)
+        self.assertNotIn("vendor/laravel", body)
+
+    def test_vulnerable_exposes_an_openapi_spec(self):
+        for name in ("swagger.json", "openapi.json", "v2/api-docs"):
+            status, body, _ = self.get("/vulneravel/" + name)
+            self.assertEqual(status, 200, name)
+            data = json.loads(body)
+            self.assertIn("openapi", data)
+            self.assertIn("paths", data)
+
+    def test_fixed_hides_the_openapi_spec(self):
+        status, body, _ = self.get("/corrigido/swagger.json")
+        self.assertEqual(status, 404)
+        self.assertNotIn("paths", body)
+
     def test_vulnerable_file_download_follows_traversal_with_a_synthetic_passwd(self):
         status, body, _ = self.get("/servicos/vulneravel/arquivo?file=" + quote("../../../../../../etc/passwd", safe=""))
 
@@ -106,6 +137,40 @@ class LabTest(unittest.TestCase):
         _, fixed, _ = self.get("/corrigido/app.js")
         self.assertIn("location.hash", fixed)
         self.assertNotIn(".innerHTML", fixed)
+
+    def test_profile_strips_brackets_but_leaves_the_attribute_open_in_the_vulnerable_variant(self):
+        payload = '" autofocus onfocus="egideXSSabc'
+        _, vulnerable, _ = self.get("/servicos/vulneravel/perfil?apelido=" + quote('"><b>' + payload, safe=""))
+        self.assertIn('value=""b' + payload, vulnerable)
+        self.assertNotIn("<b>", vulnerable)
+
+        _, fixed, _ = self.get("/servicos/corrigido/perfil?apelido=" + quote(payload, safe=""))
+        self.assertNotIn(payload, fixed)
+        self.assertIn("&quot;", fixed)
+
+    def test_message_template_evaluates_arithmetic_only_in_the_vulnerable_variant(self):
+        for expression in ("{{7919*8191}}", "${7919*8191}", "<%= 7919*8191 %>"):
+            _, vulnerable, _ = self.get("/servicos/vulneravel/mensagem?nome=" + quote(expression, safe=""))
+            self.assertIn("64864529", vulnerable, expression)
+
+            _, fixed, _ = self.get("/servicos/corrigido/mensagem?nome=" + quote(expression, safe=""))
+            self.assertNotIn("64864529", fixed, expression)
+
+    def test_diagnostic_simulates_command_injection_without_a_real_shell(self):
+        _, echoed, _ = self.get("/servicos/vulneravel/diagnostico?host=" + quote("127.0.0.1;echo $((7919*8191))", safe=""))
+        self.assertIn("64864529", echoed)
+
+        status, fixed, _ = self.get("/servicos/corrigido/diagnostico?host=" + quote("127.0.0.1;echo $((7919*8191))", safe=""))
+        self.assertEqual(status, 422)
+        self.assertNotIn("64864529", fixed)
+
+        _, plain, _ = self.get("/servicos/vulneravel/diagnostico?host=127.0.0.1")
+        self.assertIn("0% de perda", plain)
+
+    def test_diagnostic_never_runs_other_commands(self):
+        _, body, _ = self.get("/servicos/vulneravel/diagnostico?host=" + quote("127.0.0.1;id;cat /etc/passwd", safe=""))
+        self.assertNotIn("uid=", body)
+        self.assertNotIn("root:", body)
 
     def orders(self, variant, value):
         status, body, _ = self.get(f"/servicos/{variant}/pedido?id={quote(value, safe='')}")

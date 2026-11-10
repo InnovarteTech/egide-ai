@@ -88,9 +88,12 @@ export function Report({ scan, events, findings, target, engine, generatedAt }) 
                             </> : <>
                                 {evidenceFacts(evidence).map(([key, label, value]) => <tr key={key}><th>{label}</th><td>{value}</td></tr>)}
                                 {evidence.detail && <tr><th>Evidência</th><td>{evidence.detail}</td></tr>}
+                                {evidence.hunted && <tr><th>Origem</th><td>Caça agêntica — experimento proposto pela IA e confirmado pelo oráculo</td></tr>}
+                                {evidence.rationale && <tr><th>Raciocínio da IA</th><td>{evidence.rationale}</td></tr>}
                             </>}
                             {evidence.reference && <tr><th>Referência</th><td>{evidence.reference}</td></tr>}
                         </tbody></table>
+                        {evidence.screenshot && <figure className="report-shot"><img src={'/achados/' + finding.id + '/imagem'} alt="Captura da tela no momento da prova" /><figcaption>Captura no instante em que o oráculo confirmou a falha.</figcaption></figure>}
                         <h4>Correção recomendada</h4>
                         <p>{finding.remediation}</p>
                         {!evidence.kind && <><h4>Como validar a correção</h4><p>{crossAccount(evidence)

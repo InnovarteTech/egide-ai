@@ -64,6 +64,21 @@ final class Checks
             'severity' => 'low', 'title' => 'Arquivo .DS_Store exposto', 'reference' => 'OWASP A05:2021 · CWE-538',
             'remediation' => 'Remova arquivos .DS_Store do diretório publicado. Eles revelam nomes de arquivos e pastas.',
         ],
+        'swagger.json' => [
+            'signatures' => ['"swagger"', '"openapi"', '"paths"', '"definitions"', '"components"'], 'min' => 2,
+            'severity' => 'medium', 'title' => 'Especificação OpenAPI/Swagger exposta', 'reference' => 'OWASP A05:2021 · CWE-200',
+            'remediation' => 'Restrinja a especificação da API a ambientes internos ou proteja-a com autenticação. Ela mapeia todas as rotas, parâmetros e modelos da API para um atacante.',
+        ],
+        'openapi.json' => [
+            'signatures' => ['"swagger"', '"openapi"', '"paths"', '"definitions"', '"components"'], 'min' => 2,
+            'severity' => 'medium', 'title' => 'Especificação OpenAPI/Swagger exposta', 'reference' => 'OWASP A05:2021 · CWE-200',
+            'remediation' => 'Restrinja a especificação da API a ambientes internos ou proteja-a com autenticação. Ela mapeia todas as rotas, parâmetros e modelos da API para um atacante.',
+        ],
+        'v2/api-docs' => [
+            'signatures' => ['"swagger"', '"openapi"', '"paths"', '"basePath"'], 'min' => 2,
+            'severity' => 'medium', 'title' => 'Especificação OpenAPI/Swagger exposta', 'reference' => 'OWASP A05:2021 · CWE-200',
+            'remediation' => 'Restrinja a especificação da API a ambientes internos ou proteja-a com autenticação. Ela mapeia todas as rotas, parâmetros e modelos da API para um atacante.',
+        ],
     ];
 
     public const HEADERS = [

@@ -3,6 +3,7 @@
 use App\Http\Controllers\AccessController;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\ConsoleController;
+use App\Http\Controllers\EvidenceController;
 use App\Http\Controllers\IntegrationController;
 use App\Http\Controllers\SentinelController;
 use Illuminate\Support\Facades\Route;
@@ -40,6 +41,7 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::get('/sessoes/{scan}', [ConsoleController::class, 'showScan']);
     Route::get('/sessoes/{scan}/eventos', [ConsoleController::class, 'feed']);
     Route::get('/sessoes/{scan}/imagem', [ConsoleController::class, 'frame']);
+    Route::get('/achados/{finding}/imagem', [EvidenceController::class, 'findingImage']);
     Route::get('/sessoes/{scan}/relatorio', [ConsoleController::class, 'report']);
     Route::get('/sessoes/{scan}/relatorio/imprimir', [ConsoleController::class, 'printReport']);
     Route::post('/sessoes/{scan}/encerrar', [ConsoleController::class, 'stop']);

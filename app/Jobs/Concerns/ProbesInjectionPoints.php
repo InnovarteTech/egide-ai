@@ -3,12 +3,17 @@
 namespace App\Jobs\Concerns;
 
 use App\Models\CollaboratorHit;
+use App\Models\Finding;
 use App\Security\PayloadOracles;
 use App\Security\Payloads;
+use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 trait ProbesInjectionPoints
 {
     private array $proven = [];
+
+    private array $disclosed = [];
 
     private function probePoint(array $endpoint, array $point, array $callback, int $maxPayloads = 6): void
     {
@@ -86,15 +91,37 @@ trait ProbesInjectionPoints
             default => ['InjectionCheck · XSS refletido', 'Entrada refletida sem escape', $this->injectionReflectedAssess($payload['value'], $path, $sample, $probe['type'] ?? '')],
         };
 
-        return $this->recordAssessment($label, $path, $assessment, $title, "Verificação {$point['class']} em {$path} ({$point['point']}).");
+        return $this->recordAssessment($label, $path, $assessment, $title, "Verificação {$point['class']} em {$path} ({$point['point']}).",
+            $this->evidenceUrl($path, $point, $payload['value']), $point['class'] !== 'graphql');
     }
 
     private function sendProbe(string $path, array $point, string $value): array
     {
         $probe = $this->runner('/probe', ['path' => $path, 'inject' => ['point' => $point['point'], 'key' => $point['key'], 'value' => $value], 'markers' => []]);
-        $seen = $this->observe(false);
+        $seen = $this->observe($this->frameDue());
+        $this->noticeDisclosure($path, (string) ($probe['sample'] ?? ''));
 
         return [...$probe, 'network' => $seen['network'] ?? []];
+    }
+
+    private function noticeDisclosure(string $path, string $sample): void
+    {
+        if (count($this->disclosed) >= 3 || $sample === '') {
+            return;
+        }
+        $assessment = PayloadOracles::stackTraceAssess($path, $sample);
+        if (! $assessment['finding']) {
+            return;
+        }
+        $category = $assessment['finding']['category'];
+        $key = $category.'|'.$path;
+        if (isset($this->disclosed[$key])
+            || $this->scan->findings()->where('category', $category)->get()->contains(fn ($known) => ($known->evidence['path'] ?? null) === $path)) {
+            return;
+        }
+        $this->disclosed[$key] = true;
+        $this->recordAssessment($category, $path, $assessment, $assessment['finding']['title'],
+            'A resposta de '.$path.' vazou um rastro de erro detalhado, observado durante a injeção.');
     }
 
     private function probeMethod(array $point): string
@@ -127,15 +154,54 @@ trait ProbesInjectionPoints
             "O parâmetro {$point['key']} em {$path} redirecionou para o domínio de teste.");
     }
 
-    private function recordAssessment(string $check, string $path, array $assessment, string $title, string $detail): bool
+    private function recordAssessment(string $check, string $path, array $assessment, string $title, string $detail, ?string $evidenceUrl = null, bool $capture = false): bool
     {
         $this->cover($check, $path, $assessment['verdict']);
         if (! $assessment['finding']) {
             return false;
         }
-        $this->scan->findings()->create($assessment['finding']);
+        $finding = $this->scan->findings()->create($assessment['finding']);
         $this->scan->event('finding', $title, $detail, $assessment['finding']['evidence']);
+        if ($capture) {
+            $this->captureEvidence($finding, $evidenceUrl);
+        }
 
         return true;
+    }
+
+    private function evidenceUrl(string $path, array $point, string $value): ?string
+    {
+        if (! str_starts_with($path, '/') || str_starts_with($path, '//') || $point['point'] === 'body') {
+            return null;
+        }
+        if ($point['point'] === 'path') {
+            $trimmed = rtrim($path, '/');
+
+            return substr($trimmed, 0, strrpos($trimmed, '/') + 1).rawurlencode($value);
+        }
+        $key = is_string($point['key'] ?? null) && preg_match('~^[A-Za-z0-9_.\-]{1,40}$~', $point['key']) ? $point['key'] : 'q';
+
+        return $path.(str_contains($path, '?') ? '&' : '?').http_build_query([$key => $value]);
+    }
+
+    private function captureEvidence(Finding $finding, ?string $url): void
+    {
+        try {
+            if ($url !== null) {
+                $this->runner('/action', ['kind' => 'goto', 'path' => $url]);
+                $this->settle();
+            }
+            $frame = base64_decode((string) ($this->observe(true)['frame'] ?? ''), true);
+            if ($frame && strlen($frame) < 600_000 && str_starts_with($frame, "\xff\xd8")) {
+                Storage::put('findings/'.$finding->id.'.jpg', $frame);
+                $finding->update(['evidence' => [...$finding->evidence, 'screenshot' => true]]);
+            }
+        } catch (Throwable) {
+        }
+    }
+
+    protected function settle(): void
+    {
+        usleep(1500000);
     }
 }

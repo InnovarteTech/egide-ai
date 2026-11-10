@@ -7,10 +7,10 @@ import { Layout, Heading } from '../layout';
 export function NewSession({ targets, initial, externalEngine, labEngine, initialAgent, previous }) {
     const { auth } = usePage().props;
     const mode = ['laboratory', 'retest', 'external'].includes(initial) ? initial : 'laboratory';
-    const form = useForm({ mode: previous ? 'external' : mode, target_id: previous?.target_id ?? targets[0]?.id ?? '', budget: previous?.budget ?? (previous || mode === 'external' ? 80 : 300), authorized: false, agent: initialAgent, retest_of: previous?.id ?? null });
+    const form = useForm({ mode: previous ? 'external' : mode, target_id: previous?.target_id ?? targets[0]?.id ?? '', budget: previous?.budget ?? (previous || mode === 'external' ? 300 : 600), authorized: false, agent: initialAgent, retest_of: previous?.id ?? null });
     const target = targets.find(item => String(item.id) === String(form.data.target_id));
     const external = form.data.mode === 'external';
-    const maxBudget = external ? 180 : 300;
+    const maxBudget = external ? 2000 : 600;
     const blocked = external && (!target || !externalEngine);
     const modes = [
         ['laboratory', 'Laboratório', 'App vulnerável com dados fictícios.', CirclePlay],
@@ -26,7 +26,7 @@ export function NewSession({ targets, initial, externalEngine, labEngine, initia
                     <legend>Ambiente</legend>
                     {previous ? <p className="form-note"><RefreshCw size={16} /><span>Reteste do achado da sessão <strong>{scanLabel(previous)}</strong> em {previous.name}.</span></p>
                         : <div className="mode-options">{modes.map(([value, label, detail, Icon]) => <label className={'mode-option ' + (form.data.mode === value ? 'selected' : '')} key={value}>
-                            <input type="radio" name="mode" className="sr-only" checked={form.data.mode === value} onChange={() => form.setData(data => ({ ...data, mode: value, budget: value === 'external' ? Math.min(data.budget, 180) : data.budget }))} />
+                            <input type="radio" name="mode" className="sr-only" checked={form.data.mode === value} onChange={() => form.setData(data => ({ ...data, mode: value, budget: Math.min(data.budget, value === 'external' ? 2000 : 600) }))} />
                             <span className="mode-icon"><Icon size={19} /></span>
                             <strong>{label}</strong>
                             <small>{detail}</small>
@@ -45,6 +45,7 @@ export function NewSession({ targets, initial, externalEngine, labEngine, initia
                         <div className="range-head"><label htmlFor="budget">Limite de requisições</label><output htmlFor="budget">{form.data.budget}</output></div>
                         <input id="budget" type="range" min="10" max={maxBudget} step="5" value={form.data.budget} onChange={e => form.setData('budget', Number(e.target.value))} style={{ '--fill': ((form.data.budget - 10) / (maxBudget - 10)) * 100 + '%' }} />
                         <div className="range-scale"><span>10</span><span>{maxBudget}</span></div>
+                        {external && <small>Ambientes marcados como produção ficam limitados a 180 requisições e só são mapeados.</small>}
                         {form.errors.budget && <small className="field-error" role="alert"><TriangleAlert size={13} />{form.errors.budget}</small>}
                     </div>
                     {!external && (labEngine || form.data.agent) && <label className="switch-row">

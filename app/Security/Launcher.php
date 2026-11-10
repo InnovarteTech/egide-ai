@@ -52,7 +52,7 @@ final class Launcher
                 'provider' => $engine['provider'],
                 'model' => $engine['model'],
                 'engine_key' => $engine['key'],
-                'credentials' => $target->credentials, 'budget' => max(10, min(180, $budget)),
+                'credentials' => $target->credentials, 'budget' => Scope::budget('external', $target->environment_type, $budget),
             ]);
             $origin = ['schedule' => 'agendamento', 'api' => 'integração via API', 'manual' => 'console'][$trigger];
             $scan->event('system', 'Sessão recebida', "Iniciada por {$origin}. Aguardando o executor na fila Horizon.");

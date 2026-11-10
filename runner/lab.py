@@ -87,6 +87,22 @@ class Lab(BaseHTTPRequestHandler):
         if path == "/vulneravel/.env":
             self.reply("APP_ENV=production\nAPP_KEY=base64:ZmljdGljaW8tbGFib3JhdG9yaW8=\nDB_PASSWORD=senha-ficticia-do-laboratorio\n", kind="text/plain; charset=utf-8")
             return
+        spec = re.fullmatch(r"/(vulneravel|corrigido)/(?:swagger\.json|openapi\.json|v2/api-docs)", path)
+        if spec:
+            if spec.group(1) == "corrigido":
+                self.reply(json.dumps({"error": "Nao encontrado"}), 404, "application/json")
+            else:
+                self.reply(json.dumps({
+                    "openapi": "3.0.0",
+                    "info": {"title": "Prisma Faturas API", "version": "1.0"},
+                    "paths": {
+                        "/servicos/vulneravel/extratos/{id}": {"get": {"summary": "Exporta uma fatura"}},
+                        "/servicos/vulneravel/admin/relatorio": {"get": {"summary": "Relatorio administrativo"}},
+                        "/servicos/vulneravel/clientes": {"get": {"summary": "Lista clientes"}},
+                    },
+                    "components": {"schemas": {"Fatura": {"type": "object"}, "Empresa": {"type": "object"}}},
+                }), kind="application/json")
+            return
         verify = re.fullmatch(r"/(vulneravel|corrigido)/confirmar/([a-f0-9]{32})", path)
         if verify:
             variant, token = verify.groups()

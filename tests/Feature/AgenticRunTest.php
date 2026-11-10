@@ -101,6 +101,6 @@ class AgenticRunTest extends TestCase
     {
         $budget = AgenticRun::budget(new Scan(['scope' => []]));
         $this->assertSame(12, $budget['max_endpoints']);
-        $this->assertSame(40, $budget['max_strategist_calls']);
+        $this->assertSame(80, $budget['max_strategist_calls']);
     }
 }

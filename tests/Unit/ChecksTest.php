@@ -32,6 +32,17 @@ class ChecksTest extends TestCase
         $this->assertFalse(Checks::confirmed($env, ['status' => 200, 'matches' => ['APP_KEY='], 'type' => 'text/plain', 'blocked' => true]));
     }
 
+    public function test_openapi_spec_is_confirmed_only_with_two_signatures_and_a_non_html_type(): void
+    {
+        $spec = Checks::FILES['swagger.json'];
+
+        $this->assertSame('medium', $spec['severity']);
+        $this->assertFalse(Checks::confirmed($spec, ['status' => 200, 'matches' => ['"openapi"'], 'type' => 'application/json']));
+        $this->assertTrue(Checks::confirmed($spec, ['status' => 200, 'matches' => ['"openapi"', '"paths"'], 'type' => 'application/json']));
+        // Uma página HTML do Swagger UI (não a especificação) não conta.
+        $this->assertFalse(Checks::confirmed($spec, ['status' => 200, 'matches' => ['"openapi"', '"paths"'], 'type' => 'text/html; charset=utf-8']));
+    }
+
     public function test_header_issues_become_grouped_findings_without_secret_values(): void
     {
         $findings = Checks::headerFindings([

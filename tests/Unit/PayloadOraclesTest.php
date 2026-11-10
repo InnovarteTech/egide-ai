@@ -62,6 +62,35 @@ class PayloadOraclesTest extends TestCase
         $this->assertSame('nao_testado', PayloadOracles::domXssAssess('EGIDEDOMx1', ['executed' => true, 'token' => 'outro'])['verdict']);
     }
 
+    public function test_stack_trace_oracle_detects_framework_traces(): void
+    {
+        $laravel = "Whoops\\Exception\\ErrorException: Undefined variable \$x in /var/www/vendor/laravel/framework/src/Illuminate/Routing/Controller.php:54\nStack trace:\n#0 /var/www/app/Http/Controllers/HomeController.php(21): handle()";
+        $falha = PayloadOracles::stackTraceAssess('/painel', $laravel);
+        $this->assertSame('falha', $falha['verdict']);
+        $this->assertSame('medium', $falha['finding']['severity']);
+        $this->assertSame('ConfigCheck · rastro de pilha', $falha['finding']['category']);
+        $this->assertSame('OWASP A05:2021 · CWE-209', $falha['finding']['evidence']['reference']);
+
+        $python = "Traceback (most recent call last):\n  File \"/srv/app/views.py\", line 88, in get\n    raise KeyError(k)\nKeyError: 'id'";
+        $this->assertSame('falha', PayloadOracles::stackTraceAssess('/x', $python)['verdict']);
+
+        $java = "java.lang.NullPointerException\n\tat com.acme.Svc.run(Svc.java:42)\n\tat com.acme.Main.main(Main.java:11)";
+        $this->assertSame('falha', PayloadOracles::stackTraceAssess('/x', $java)['verdict']);
+    }
+
+    public function test_stack_trace_oracle_does_not_flag_ordinary_text(): void
+    {
+        $this->assertSame('nao_testado', PayloadOracles::stackTraceAssess('/x', '{"erro":"id invalido"}')['verdict']);
+        $this->assertSame('nao_testado', PayloadOracles::stackTraceAssess('/x', 'Ocorreu um erro. Tente novamente mais tarde.')['verdict']);
+        // Menção à expressão "stack trace" na documentação, sem o rastro em si, não é vazamento.
+        $this->assertSame('nao_testado', PayloadOracles::stackTraceAssess('/x', 'Veja o stack trace no console do navegador para depurar.')['verdict']);
+        // Frase com "at" não é stack trace Java.
+        $this->assertSame('nao_testado', PayloadOracles::stackTraceAssess('/x', 'Meet me at the station at 9.')['verdict']);
+        // Resposta legítima que apenas cita um namespace de framework (sem rastro/linha) não é vazamento.
+        $this->assertSame('nao_testado', PayloadOracles::stackTraceAssess('/x', '{"classe":"Illuminate\\\\Support\\\\Collection","itens":3}')['verdict']);
+        $this->assertSame('nao_testado', PayloadOracles::stackTraceAssess('/x', 'Erro: a classe Symfony\Component\HttpKernel não foi encontrada no container.')['verdict']);
+    }
+
     public function test_nosql_oracle_detects_error_signature(): void
     {
         $this->assertSame('falha', PayloadOracles::noSqlAssess('/x', 'MongoServerError: unknown top level operator $ne')['verdict']);

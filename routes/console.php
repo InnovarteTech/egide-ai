@@ -89,7 +89,7 @@ Schedule::command('egide:sentinela-retencao')->dailyAt('03:17');
 Schedule::command('egide:demo-limpeza')->hourly();
 
 Artisan::command('egide:sessoes-presas', function () {
-    $stuck = Scan::where(fn ($query) => $query->where('status', 'running')->where('started_at', '<', now()->subMinutes(15)))
+    $stuck = Scan::where(fn ($query) => $query->where('status', 'running')->where('started_at', '<', now()->subMinutes((int) config('egide.session_minutes', 130) + 10)))
         ->orWhere(fn ($query) => $query->where('status', 'queued')->where('created_at', '<', now()->subMinutes(50)))->get();
     foreach ($stuck as $scan) {
         $scan->update(['status' => 'failed', 'phase' => 'Interrompida', 'finished_at' => now(), 'engine_key' => null, 'credentials' => null,

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, router, useForm } from '@inertiajs/react';
 import { Activity, ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpRight, Check, CirclePlay, Crosshair, Fingerprint, Globe2, LockKeyhole, Monitor, Plus, Radio, RefreshCw, ShieldCheck, Printer, Square, TriangleAlert, X } from 'lucide-react';
-import { outcomes, formatDate, formatTime, scanLabel, hostOf, plural, bySeverity } from '../format';
+import { outcomes, captureAge, formatDate, formatTime, scanLabel, hostOf, plural, bySeverity } from '../format';
 import { Badge, Status, useTab, Tabs, TabPanel, Empty, Pagination } from '../ui';
 import { Layout, Heading } from '../layout';
 import { RuleColumns, FindingCard, ScanResult } from '../evidence';
@@ -42,7 +42,7 @@ export function Sessions({ scans, filter = 'todas', counts = {} }) {
 const eventIcons = { browser: Monitor, identity: Fingerprint, network: Globe2, blocked: LockKeyhole, finding: Crosshair, verified: Check, test: Activity, error: X, system: Radio };
 export function Session(initial) {
     const [state, setState] = useState(initial);
-    const { scan, events, findings, frame } = state;
+    const { scan, events, findings, frame, frame_at: frameAt } = state;
     const active = ['queued', 'running'].includes(scan.status);
     const base = '/sessoes/' + scan.id;
     const outcome = outcomes[scan.result];
@@ -99,10 +99,11 @@ export function Session(initial) {
         ]} />
         {tab === 'execucao' && <TabPanel name="sessao" id="execucao" className="session-columns">
             <section className="panel browser-panel">
-                <div className="panel-header"><h2>Firefox</h2><Badge tone={scan.status === 'running' ? 'green' : 'neutral'}>{scan.status === 'running' ? 'Ao vivo' : frame ? 'Última captura' : 'Em espera'}</Badge></div>
+                <div className="panel-header"><h2>Firefox</h2><Badge tone={scan.status === 'running' ? 'green' : 'neutral'}>{scan.status === 'running' ? 'Captura automática' : frame ? 'Última captura' : 'Em espera'}</Badge></div>
                 <div className="browser-view">
                     {frame ? <img alt="Captura da sessão no Firefox" src={base + '/imagem?v=' + encodeURIComponent(events.at(-1)?.id ?? scan.updated_at)} />
                         : <div className="browser-placeholder"><Monitor size={36} strokeWidth={1.4} /><strong>{active ? 'Aguardando o Firefox' : 'Captura indisponível'}</strong><span>A imagem aparece quando o executor carrega a página.</span></div>}
+                    {active && frame && frameAt && <span className="frame-stamp">Capturado {captureAge(frameAt)}</span>}
                 </div>
                 <div className="browser-foot"><LockKeyhole size={15} /> {host}<span>{scan.mode === 'external' ? 'Ambiente verificado' : 'Laboratório'}</span></div>
             </section>

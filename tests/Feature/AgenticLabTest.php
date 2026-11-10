@@ -3,114 +3,24 @@
 namespace Tests\Feature;
 
 use App\Jobs\RunScan;
-use App\Models\CollaboratorHit;
 use App\Models\Scan;
 use App\Models\User;
 use App\Security\Planner;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
-
-class FakeRunScan extends RunScan
-{
-    public bool $vulnerable = true;
-
-    public bool $escaping = false;
-
-    public int $navigationCost = 1;
-
-    private array $log = [];
-
-    protected function runner(string $path, array $data = []): array
-    {
-        if ($path === '/observe') {
-            [$network, $this->log] = [$this->log, []];
-
-            return ['network' => $network, 'actor' => 'a', 'page' => ['controls' => []]];
-        }
-        $route = (string) ($data['path'] ?? '');
-        if ($path === '/dom_probe') {
-            for ($i = 0; $i < $this->navigationCost; $i++) {
-                $this->proxied($i === 0 ? $route : '/assets/recurso-'.$i.'.js', 200);
-            }
-            $token = (string) ($data['token'] ?? '');
-
-            return ['executed' => $this->vulnerable, 'token' => $this->vulnerable ? $token : null];
-        }
-        if ($path !== '/probe') {
-            return ['network' => [], 'actor' => 'a'];
-        }
-        $inject = $data['inject'] ?? null;
-        $value = is_array($inject) ? (string) ($inject['value'] ?? '') : '';
-        if (str_contains($route, 'retorno')) {
-            $this->proxied($route, 302, $this->vulnerable ? $value : '/vulneravel/painel');
-
-            return ['sample' => '', 'type' => '', 'status' => 0, 'elapsed' => 30];
-        }
-        $answer = $this->answer($route, $value);
-        $this->proxied($route, $answer['status']);
-
-        return $answer;
-    }
-
-    private function proxied(string $route, int $status, ?string $location = null): void
-    {
-        $this->log[] = ['method' => 'GET', 'host' => 'lab.egide.test', 'path' => explode('?', $route, 2)[0], 'status' => $status,
-            'allowed' => true, 'reason' => '', 'issues' => [], ...($location === null ? [] : ['location' => $location])];
-    }
-
-    private function answer(string $route, string $value): array
-    {
-        $safe = ['sample' => 'ok', 'type' => 'application/json', 'status' => 200, 'elapsed' => 50];
-        // domXssSweep probes (no inject): entry HTML + bundle with a source-fed sink.
-        if ($value === '' && str_contains($route, 'vulneravel') && ! str_contains($route, '.js')) {
-            return ['sample' => '<html><script src="/assets/app.js"></script></html>', 'type' => 'text/html', 'status' => 200, 'elapsed' => 40];
-        }
-        if ($value === '' && str_contains($route, '.js')) {
-            return ['sample' => 'var h = location.hash.slice(1); el.dangerouslySetInnerHTML = {__html: h};', 'type' => 'application/javascript', 'status' => 200, 'elapsed' => 40];
-        }
-        if (str_contains($route, 'pedido')) {
-            $found = $value === '1' || ($this->vulnerable && str_contains($value, "'1'='1'"));
-
-            return ['sample' => $found ? '{"pedidos":[{"id":"1","item":"Assinatura anual"}]}' : '{"pedidos":[]}', 'type' => 'application/json', 'status' => 200, 'elapsed' => 40];
-        }
-        if (! $this->vulnerable) {
-            return $safe;
-        }
-        if ((str_contains($value, '$ne') || str_contains($value, '$gt')) && str_contains($route, 'consulta')) {
-            return ['sample' => 'MongoServerError: unknown top level operator: $ne', 'type' => 'application/json', 'status' => 500, 'elapsed' => 50];
-        }
-        if (str_contains($value, 'egideXSS') && str_contains($route, 'busca')) {
-            $reflected = $this->escaping ? htmlspecialchars($value, ENT_QUOTES) : $value;
-
-            return ['sample' => '<div>'.$reflected.'</div>', 'type' => 'text/html', 'status' => 200, 'elapsed' => 50];
-        }
-        if ((stripos($value, 'sleep') !== false || str_contains($value, 'pg_sleep')) && str_contains($route, 'consulta')) {
-            return ['sample' => '', 'type' => 'application/json', 'status' => 200, 'elapsed' => 6000];
-        }
-        if (str_contains($value, '/api/colaborador/') && str_contains($route, 'integrador')) {
-            if (preg_match('~/api/colaborador/([A-Za-z0-9]+)~', $value, $match)) {
-                CollaboratorHit::create(['token' => $match[1], 'method' => 'GET', 'source_ip' => '10.0.0.9', 'path' => '/fetch', 'received_at' => now()]);
-            }
-
-            return $safe;
-        }
-        if (in_array($value, ["'", '"', "')", "';"], true) && str_contains($route, 'consulta')) {
-            return ['sample' => 'Fatal error: SQLSTATE[42000]: Syntax error or access violation near "\'"', 'type' => 'application/json', 'status' => 500, 'elapsed' => 50];
-        }
-        if (str_contains($value, 'etc/passwd') && str_contains($route, 'arquivo')) {
-            return ['sample' => "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:", 'type' => 'text/plain', 'status' => 200, 'elapsed' => 50];
-        }
-        if (str_contains($route, 'graphql') && str_contains($value, '__schema')) {
-            return ['sample' => '{"data":{"__schema":{"queryType":{"name":"Query"},"types":[{"name":"User"}]}}}', 'type' => 'application/json', 'status' => 200, 'elapsed' => 50];
-        }
-
-        return $safe;
-    }
-}
 
 class AgenticLabTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Storage::fake();
+    }
+
+    private ?FakeRunScan $lastFake = null;
 
     private function runLoop(bool $vulnerable, bool $escaping = false, int $budget = 1000): Scan
     {
@@ -125,6 +35,7 @@ class AgenticLabTest extends TestCase
         $fake = new FakeRunScan($scan->id);
         $fake->vulnerable = $vulnerable;
         $fake->escaping = $escaping;
+        $this->lastFake = $fake;
         $inventory = [
             'GET /servicos/vulneravel/busca' => ['method' => 'GET', 'path' => '/servicos/vulneravel/busca', 'params' => ['q'], 'body' => [], 'auth' => true, 'seen_in' => 'xhr'],
             'GET /servicos/vulneravel/consulta' => ['method' => 'GET', 'path' => '/servicos/vulneravel/consulta', 'params' => ['id'], 'body' => [], 'auth' => true, 'seen_in' => 'xhr'],
@@ -152,6 +63,40 @@ class AgenticLabTest extends TestCase
         $save->invoke($fake);
 
         return $scan->fresh();
+    }
+
+    public function test_findings_carry_a_screenshot_of_the_proof(): void
+    {
+        Storage::fake();
+        $scan = $this->runLoop(vulnerable: true);
+
+        $reflected = $scan->findings()->where('category', 'InjectionCheck · XSS refletido')->first();
+        $this->assertTrue($reflected->evidence['screenshot'] ?? false);
+        $this->assertTrue(Storage::exists('findings/'.$reflected->id.'.jpg'));
+        $this->assertNotEmpty(array_filter($this->lastFake->gotos, fn ($url) => str_starts_with($url, '/servicos/vulneravel/busca?q=')));
+
+        $dom = $scan->findings()->where('category', 'InjectionCheck · DOM XSS')->first();
+        $this->assertTrue($dom->evidence['screenshot'] ?? false);
+
+        $redirect = $scan->findings()->where('category', 'RedirectCheck · open redirect')->first();
+        $this->assertArrayNotHasKey('screenshot', $redirect->evidence);
+        $this->assertSame([], array_filter($this->lastFake->gotos, fn ($url) => str_contains($url, 'retorno')));
+    }
+
+    public function test_dom_sweep_runs_before_the_endpoint_battery(): void
+    {
+        $checks = array_column((array) $this->runLoop(vulnerable: true)->coverage, 'check');
+
+        $this->assertLessThan(array_search('InjectionCheck · XSS refletido', $checks), array_search('InjectionCheck · DOM XSS', $checks));
+    }
+
+    public function test_live_view_is_refreshed_periodically_during_the_battery(): void
+    {
+        $this->invokeWith([], 'agenticBattery', 1000);
+        $frames = $this->lastFake->frames;
+
+        $this->assertContains(true, $frames);
+        $this->assertLessThan(count($frames) / 2, count(array_filter($frames)), 'captura periódica, não a cada sonda');
     }
 
     public function test_agentic_loop_finds_planted_vulnerabilities_with_proof(): void
@@ -257,6 +202,7 @@ class AgenticLabTest extends TestCase
         $fake = new FakeRunScan($scan->id);
         $fake->vulnerable = $vulnerable;
         $fake->navigationCost = $navigationCost;
+        $this->lastFake = $fake;
         $reflection = new \ReflectionClass(RunScan::class);
         $inventory = ['GET /servicos/vulneravel/busca' => ['method' => 'GET', 'path' => '/servicos/vulneravel/busca', 'params' => ['q'], 'body' => [], 'auth' => true, 'seen_in' => 'xhr']];
         foreach (['scan' => $scan, 'inventory' => $inventory, ...$state] as $property => $value) {
@@ -273,7 +219,7 @@ class AgenticLabTest extends TestCase
 
     public function test_agentic_phase_stops_in_time_for_the_configuration_sweep(): void
     {
-        $scan = $this->invokeWith(['startedAt' => microtime(true) - 700], 'agenticBattery', 1000);
+        $scan = $this->invokeWith(['startedAt' => microtime(true) - (config('egide.session_minutes') * 60 - 100)], 'agenticBattery', 1000);
 
         $this->assertSame(0, (int) $scan->request_count, 'a varredura de configuração precisa terminar antes do teto do job');
         $this->assertTrue($scan->events()->where('title', 'Orçamento reservado para a verificação de configuração')->exists());

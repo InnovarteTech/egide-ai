@@ -1,5 +1,5 @@
 import { Link } from '@inertiajs/react';
-import { Check, ChevronRight, Crosshair, X } from 'lucide-react';
+import { Check, ChevronRight, Crosshair, Sparkles, X } from 'lucide-react';
 import { outcomes, severities, ruleLabel, scanLabel } from './format';
 import { Badge, Status } from './ui';
 
@@ -16,6 +16,7 @@ const factLabels = [
     ['false_status', 'HTTP com condição falsa'], ['redirect_host', 'Destino do redirecionamento'], ['status', 'HTTP'],
     ['baseline_ms', 'Tempo base (ms)'], ['payload_ms', 'Tempo com a carga (ms)'], ['anon_status', 'HTTP sem sessão'],
     ['normal_status', 'HTTP da conta comum'], ['source_ip', 'IP que chamou o coletor'], ['alg', 'Algoritmo do token'],
+    ['expected', 'Valor avaliado pelo alvo'],
 ];
 export function evidenceFacts(evidence) {
     return factLabels.filter(([key]) => evidence[key] !== undefined && evidence[key] !== null && evidence[key] !== '')
@@ -32,6 +33,7 @@ export function FindingCard({ finding, link = false }) {
         <div className="finding-head">
             <span className={'finding-icon tone-' + tone}><Crosshair size={19} /></span>
             <div className="finding-title"><h3>{finding.title}</h3><p>{finding.category}{link && <> · <Link href={'/sessoes/' + finding.scan_id + '?aba=resultado'} className="mono finding-link">{scanLabel({ id: finding.scan_id })}</Link></>}</p></div>
+            {evidence.hunted && <span className="hunt-tag"><Sparkles size={13} />Caça agêntica</span>}
             <Badge tone={tone}>{severity}</Badge>
         </div>
         <code className="evidence-route">{evidence.method} {evidence.path}</code>
@@ -41,6 +43,8 @@ export function FindingCard({ finding, link = false }) {
                 {evidence.detail && <p className="evidence-detail">{evidence.detail}</p>}
                 {facts.length > 0 && <dl className="evidence-grid">{facts.map(([key, label, value]) => <div key={key}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>}
             </>}
+        {evidence.rationale && <p className="evidence-rationale"><span>Raciocínio da IA</span>{evidence.rationale}</p>}
+        {evidence.screenshot && <figure className="evidence-shot"><img src={'/achados/' + finding.id + '/imagem'} alt="Captura da tela no momento em que o oráculo provou a falha" loading="lazy" /><figcaption>Captura no instante da prova</figcaption></figure>}
         <details className="fix"><summary><ChevronRight size={15} />Como corrigir</summary><p>{finding.remediation}</p></details>
     </article>;
 }

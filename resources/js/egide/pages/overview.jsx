@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { Link, router, useForm } from '@inertiajs/react';
 import { ArrowRight, ArrowUpRight, CirclePlay, Crosshair, Fingerprint, Layers3, Monitor, Plus, ScanLine, ShieldCheck } from 'lucide-react';
-import { outcomes, formatDate, formatTime, scanLabel } from '../format';
+import { outcomes, captureAge, formatDate, formatTime, scanLabel } from '../format';
 import { Status, Empty, Orbit } from '../ui';
 import { Layout, Heading } from '../layout';
 
@@ -44,12 +44,13 @@ function Spotlight({ scan }) {
         </div>
         <figure className="hero-frame">
             {scan.frame ? <img src={'/sessoes/' + scan.id + '/imagem?v=' + encodeURIComponent(scan.updated_at)} alt="Última captura do Firefox isolado" /> : <div className="hero-frame-empty"><Monitor size={28} /><span>A captura aparece quando o Firefox abre.</span></div>}
+            {live && scan.frame && scan.frame_at && <span className="frame-stamp">Captura automática · {captureAge(scan.frame_at)}</span>}
             <figcaption>Firefox isolado · {live ? scan.phase : (outcomes[scan.result]?.[0] ?? scan.phase)}</figcaption>
         </figure>
     </section>;
 }
 export function Overview({ scans, stats, agentAvailable, spotlight }) {
-    const lab = useForm({ mode: 'laboratory', budget: 300, agent: agentAvailable });
+    const lab = useForm({ mode: 'laboratory', budget: 600, agent: agentAvailable });
     const live = spotlight && ['queued', 'running'].includes(spotlight.status);
     useEffect(() => {
         if (!live) return undefined;

@@ -65,6 +65,31 @@ final class PayloadOracles
         return ['verdict' => 'nao_testado', 'finding' => null];
     }
 
+    public static function stackTraceAssess(string $path, string $sample): array
+    {
+        $signatures = [
+            'rastro de pilha PHP' => '~Stack trace:\s*\n?#0\s~',
+            'depurador Whoops/Laravel/Symfony' => '~(?:Whoops\\\\|vendor/laravel/framework|Illuminate\\\\[A-Za-z]+\\\\[A-Za-z]|Symfony\\\\Component\\\\)[\s\S]{0,400}?(?:\.php[:(]\d|\bon line \d|\n\s*#\d)~i',
+            'traceback Python' => '~Traceback \(most recent call last\):[\s\S]*?\n\s*File "~',
+            'rastro de pilha Java/JVM' => '~(?:Exception|Error)[^\n]*\n(?:\s*\bat\s[\w.$]+\([^)]*\)\s*\n?){2,}~',
+            'rastro de pilha .NET' => '~\bat\s[\w.<>+]+\([^)]*\)\sin\s.+:line\s\d+~',
+            'rastro de pilha Node.js' => '~\n\s*at\s[^\n]*\((?:/|[A-Za-z]:\\\\|node:)[^\n]*\)(?:\n\s*at\s[^\n]*){1,}~',
+        ];
+        foreach ($signatures as $kind => $pattern) {
+            if (preg_match($pattern, $sample)) {
+                return ['verdict' => 'falha', 'finding' => [
+                    'title' => 'Rastro de pilha / erro detalhado exposto', 'severity' => 'medium',
+                    'category' => 'ConfigCheck · rastro de pilha',
+                    'evidence' => ['method' => 'GET', 'path' => $path, 'reference' => 'OWASP A05:2021 · CWE-209',
+                        'detail' => 'A resposta vazou um '.$kind.', revelando caminhos de arquivo, framework e lógica interna. O conteúdo não foi armazenado.'],
+                    'remediation' => 'Desligue a exibição de erros detalhados em produção (APP_DEBUG=false, display_errors=Off) e responda páginas de erro genéricas, registrando o rastro apenas nos logs internos.',
+                ]];
+            }
+        }
+
+        return ['verdict' => 'nao_testado', 'finding' => null];
+    }
+
     public static function graphqlAssess(string $path, string $sample): array
     {
         $introspected = str_contains($sample, '"data"')
@@ -143,6 +168,51 @@ final class PayloadOracles
                 'length_delta' => abs(self::size($false) - self::size($true)), 'reference' => 'OWASP A03:2021 · CWE-89',
                 'detail' => 'A condição verdadeira reproduziu a resposta original e a condição falsa mudou a resposta, de forma consistente em '.count($rounds).' rodadas. O conteúdo não foi armazenado.'],
             'remediation' => 'Use consultas parametrizadas (prepared statements); nunca concatene entrada do cliente em SQL.',
+        ]];
+    }
+
+    private const EVALUATION = [
+        'ssti' => ['Injeção de template no servidor (SSTI)', 'InjectionCheck · SSTI', 'OWASP A03:2021 · CWE-1336',
+            'Nunca monte templates com entrada do cliente; passe a entrada como variável de contexto e use o modo sandbox do motor de templates.'],
+        'command' => ['Injeção de comando no sistema operacional', 'InjectionCheck · injeção de comando', 'OWASP A03:2021 · CWE-78',
+            'Não passe entrada do cliente para o shell; use chamadas sem shell, com argumentos separados, e valide a entrada contra uma lista permitida.'],
+    ];
+
+    public static function evaluationAssess(string $path, string $technique, string $expected, string $sample, string $baseline, string $method = 'GET'): array
+    {
+        $meta = self::EVALUATION[$technique] ?? null;
+        if (! $meta || $expected === '' || $sample === '') {
+            return ['verdict' => 'nao_testado', 'finding' => null];
+        }
+        if (! str_contains($sample, $expected) || str_contains($baseline, $expected)) {
+            return ['verdict' => 'protegido', 'finding' => null];
+        }
+
+        return ['verdict' => 'falha', 'finding' => [
+            'title' => $meta[0], 'severity' => 'critical', 'category' => $meta[1],
+            'evidence' => ['method' => $method, 'path' => $path, 'expected' => $expected, 'reference' => $meta[2],
+                'detail' => 'A expressão aritmética enviada foi avaliada pelo servidor: o resultado único apareceu na resposta e não aparece na resposta de controle. O conteúdo não foi armazenado.'],
+            'remediation' => $meta[3],
+        ]];
+    }
+
+    public static function delayAssess(string $path, string $technique, float $baselineMs, float $payloadMs, int $status, string $method = 'GET'): array
+    {
+        if ($baselineMs <= 0 || $status === 0) {
+            return ['verdict' => 'nao_testado', 'finding' => null];
+        }
+        if ($payloadMs - $baselineMs < 4000 || $payloadMs < 2 * $baselineMs) {
+            return ['verdict' => 'protegido', 'finding' => null];
+        }
+        $command = $technique === 'command_time';
+
+        return ['verdict' => 'falha', 'finding' => [
+            'title' => $command ? 'Injeção de comando por tempo (blind)' : 'Injeção de SQL por tempo (blind)',
+            'severity' => $command ? 'critical' : 'high',
+            'category' => $command ? 'InjectionCheck · injeção de comando' : 'InjectionCheck · SQLi por tempo',
+            'evidence' => ['method' => $method, 'path' => $path, 'baseline_ms' => round($baselineMs), 'payload_ms' => round($payloadMs),
+                'reference' => $command ? 'OWASP A03:2021 · CWE-78' : 'OWASP A03:2021 · CWE-89'],
+            'remediation' => $command ? self::EVALUATION['command'][3] : 'Use consultas parametrizadas (prepared statements); nunca concatene entrada do cliente em SQL.',
         ]];
     }
 

@@ -159,6 +159,11 @@ final class Planner
         ];
     }
 
+    public function structured(Scan $scan, string $instruction, array $observation, array $schema): array
+    {
+        return $this->decide($scan, $instruction, $observation, $schema);
+    }
+
     public function check(string $provider, ?string $model, ?string $key): void
     {
         $scan = new Scan(['provider' => $provider, 'model' => $model, 'engine_key' => $key, 'scope' => ['lab' => true]]);

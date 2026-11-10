@@ -77,6 +77,13 @@ final class Scope
         return ['host' => $api, 'path' => $parts['path']];
     }
 
+    public static function budget(string $mode, ?string $environment, int $requested): int
+    {
+        $max = $mode === 'external' ? ($environment === 'test' ? 2000 : 180) : 600;
+
+        return max(10, min($max, $requested));
+    }
+
     public static function allows(array $scope, string $method, string $path): bool
     {
         $route = self::route($scope, $path);

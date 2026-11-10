@@ -28,10 +28,10 @@ class LabSessionTest extends TestCase
         Queue::fake();
         $user = User::factory()->create();
 
-        $this->actingAs($user)->post('/sessoes', ['mode' => 'laboratory', 'budget' => 300])->assertSessionHasNoErrors();
-        $this->assertSame(300, Scan::sole()->budget);
+        $this->actingAs($user)->post('/sessoes', ['mode' => 'laboratory', 'budget' => 600])->assertSessionHasNoErrors();
+        $this->assertSame(600, Scan::sole()->budget);
 
-        $this->actingAs($user)->post('/sessoes', ['mode' => 'retest', 'budget' => 301])->assertSessionHasErrors('budget');
-        $this->actingAs($user)->post('/sessoes', ['mode' => 'external', 'budget' => 200])->assertSessionHasErrors('budget');
+        $this->actingAs($user)->post('/sessoes', ['mode' => 'retest', 'budget' => 601])->assertSessionHasErrors('budget');
+        $this->actingAs($user)->post('/sessoes', ['mode' => 'external', 'budget' => 2001])->assertSessionHasErrors('budget');
     }
 }

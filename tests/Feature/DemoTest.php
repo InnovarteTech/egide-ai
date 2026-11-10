@@ -132,7 +132,7 @@ class DemoTest extends TestCase
         $this->enableDemo();
         $this->post('/laboratorio/entrar');
         $user = User::sole();
-        $scan = Scan::create(['user_id' => $user->id, 'name' => 'x', 'mode' => 'laboratory', 'status' => 'running', 'scope' => [], 'started_at' => now()->subMinutes(20)]);
+        $scan = Scan::create(['user_id' => $user->id, 'name' => 'x', 'mode' => 'laboratory', 'status' => 'running', 'scope' => [], 'started_at' => now()->subHours(3)]);
         User::query()->update(['created_at' => now()->subDays(2)]);
 
         $this->artisan('egide:demo-limpeza')->assertSuccessful();

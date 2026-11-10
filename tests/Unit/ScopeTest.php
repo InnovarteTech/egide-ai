@@ -2,12 +2,30 @@
 
 namespace Tests\Unit;
 
+use App\Jobs\RunScan;
 use App\Models\Target;
 use App\Security\Scope;
 use Tests\TestCase;
 
 class ScopeTest extends TestCase
 {
+    public function test_request_budget_is_generous_for_tests_and_capped_for_production(): void
+    {
+        $this->assertSame(600, Scope::budget('laboratory', null, 600));
+        $this->assertSame(600, Scope::budget('retest', null, 5000));
+        $this->assertSame(2000, Scope::budget('external', 'test', 2000));
+        $this->assertSame(180, Scope::budget('external', 'production', 500));
+        $this->assertSame(180, Scope::budget('external', null, 500));
+        $this->assertSame(10, Scope::budget('external', 'test', 1));
+    }
+
+    public function test_session_length_follows_configuration(): void
+    {
+        config(['egide.session_minutes' => 45]);
+
+        $this->assertSame(2700, (new RunScan('x'))->timeout);
+    }
+
     public function test_account_origins_must_share_the_asset_domain(): void
     {
         $this->assertTrue(Scope::sibling('https://app.agenda.com.br', 'https://salao-a.agenda.com.br'));

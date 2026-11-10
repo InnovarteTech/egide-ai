@@ -25,6 +25,19 @@ BUNDLE = """(() => {{
 """
 
 
+TEMPLATE_EXPRESSION = re.compile(r"(?:\{\{|\$\{|<%=)\s*(\d{1,6})\s*\*\s*(\d{1,6})\s*(?:\}\}|\}|%>)")
+
+STACK_TRACE = (
+    "TypeError: App\\Http\\Controllers\\RelatorioController::mes(): Argument #1 ($mes) must be of type int, "
+    "string given, called in /var/www/html/vendor/laravel/framework/src/Illuminate/Routing/ControllerDispatcher.php on line 46\n"
+    "Stack trace:\n"
+    "#0 /var/www/html/vendor/laravel/framework/src/Illuminate/Routing/ControllerDispatcher.php(46): App\\Http\\Controllers\\RelatorioController->mes()\n"
+    "#1 /var/www/html/vendor/laravel/framework/src/Illuminate/Routing/Route.php(260): Illuminate\\Routing\\ControllerDispatcher->dispatch()\n"
+    "#2 /var/www/html/vendor/laravel/framework/src/Illuminate/Routing/Router.php(799): Illuminate\\Routing\\Route->run()\n"
+    "#3 {main}"
+)
+
+
 def public_host(url):
     host = urlsplit(url).hostname
     if not host:
@@ -125,6 +138,46 @@ def get(lab, path, page):
     if bundle:
         sink = "innerHTML" if bundle.group(1) == "vulneravel" else "textContent"
         lab.reply(BUNDLE.format(sink=sink), kind="application/javascript; charset=utf-8")
+        return True
+    perfil = re.fullmatch(r"/servicos/(vulneravel|corrigido)/perfil", path)
+    if perfil:
+        apelido = parse_qs(urlsplit(lab.path).query).get("apelido", [""])[0][:200]
+        shown = apelido.replace("<", "").replace(">", "") if perfil.group(1) == "vulneravel" else html.escape(apelido, quote=True)
+        lab.reply(page(f'<small>PERFIL</small><h1>Seu apelido</h1><form><label>Apelido<input name="apelido" value="{shown}"></label></form>'))
+        return True
+    mensagem = re.fullmatch(r"/servicos/(vulneravel|corrigido)/mensagem", path)
+    if mensagem:
+        nome = parse_qs(urlsplit(lab.path).query).get("nome", [""])[0][:200]
+        if mensagem.group(1) == "vulneravel":
+            nome = TEMPLATE_EXPRESSION.sub(lambda found: str(int(found.group(1)) * int(found.group(2))), nome)
+        lab.reply(page(f"<small>MENSAGEM</small><h1>Olá, {html.escape(nome)}</h1><p>Seu boleto vence amanhã.</p>"))
+        return True
+    relatorio = re.fullmatch(r"/servicos/(vulneravel|corrigido)/relatorio", path)
+    if relatorio:
+        mes = parse_qs(urlsplit(lab.path).query).get("mes", [""])[0][:200]
+        if re.fullmatch(r"\d{1,6}", mes):
+            lab.reply(json.dumps({"relatorio": f"mês {int(mes)}", "faturas": 0}), kind="application/json")
+        elif relatorio.group(1) == "vulneravel":
+            lab.reply(STACK_TRACE, 500, "text/html; charset=utf-8")
+        else:
+            lab.reply(json.dumps({"erro": "parâmetro mes inválido"}), 422, "application/json")
+        return True
+    diagnostico = re.fullmatch(r"/servicos/(vulneravel|corrigido)/diagnostico", path)
+    if diagnostico:
+        host = parse_qs(urlsplit(lab.path).query).get("host", [""])[0][:200]
+        if diagnostico.group(1) == "corrigido" and not re.fullmatch(r"[A-Za-z0-9.-]{1,253}", host):
+            lab.reply(json.dumps({"erro": "host inválido"}), 422, "application/json")
+            return True
+        parts = re.split(r"[;|&`]|\$\(", host, maxsplit=1)
+        output = f"PING {parts[0].strip() or 'localhost'}: 4 pacotes, 0% de perda"
+        if diagnostico.group(1) == "vulneravel" and len(parts) == 2:
+            echo = re.search(r"echo\s+\$\(\(\s*(\d{1,6})\s*\*\s*(\d{1,6})\s*\)\)", parts[1])
+            pause = re.search(r"(?:sleep\s+|ping\s+-c\s+)(\d{1,2})", parts[1])
+            if echo:
+                output += "\n" + str(int(echo.group(1)) * int(echo.group(2)))
+            if pause:
+                time.sleep(min(int(pause.group(1)), 6))
+        lab.reply(json.dumps({"saida": output}), kind="application/json")
         return True
     return False
 
