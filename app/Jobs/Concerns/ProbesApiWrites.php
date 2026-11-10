@@ -4,7 +4,6 @@ namespace App\Jobs\Concerns;
 
 use App\Security\ApiOracles;
 use App\Security\Scope;
-use Illuminate\Support\Str;
 use Throwable;
 
 trait ProbesApiWrites
@@ -135,12 +134,10 @@ trait ProbesApiWrites
         $count = 30;
         $probe = $this->runner('/probe', ['path' => $path, 'method' => 'POST', 'direct' => true, 'raw_body' => ['query' => ApiOracles::aliasFlood('faturas', '', $count)], 'markers' => []]);
         $this->observe($this->frameDue());
-        $sample = (string) ($probe['sample'] ?? '');
-        $data = json_decode($sample, true);
+        $data = json_decode((string) ($probe['sample'] ?? ''), true);
         $executed = is_array($data['data'] ?? null)
             ? count(array_filter(array_keys($data['data']), fn ($key) => preg_match('~^egideAlias\d+$~', (string) $key)))
             : 0;
-        $this->scan->event('test', 'GraphQL batching · diagnóstico', 'status='.(int) ($probe['status'] ?? 0).' size='.strlen($sample).' type='.($probe['type'] ?? '').' exec='.$executed.' amostra='.Str::limit($sample, 140));
         $assessment = ApiOracles::graphqlBatchingAssess($path, $count, $executed);
         $this->cover('InventoryCheck · GraphQL batching', $path, $assessment['verdict']);
         if ($assessment['finding']) {
