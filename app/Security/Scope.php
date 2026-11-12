@@ -3,6 +3,7 @@
 namespace App\Security;
 
 use App\Models\Target;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
 
 final class Scope
@@ -233,8 +234,30 @@ final class Scope
                     return true;
                 }
             }
+            break;
+        }
 
-            return false;
+        // O resolver do servidor pode estar com cache velho/incompleto; confirma via DNS-over-HTTPS
+        // em resolvers públicos, para a verificação não depender do resolver da máquina.
+        return self::dohHasToken($label, $token);
+    }
+
+    private static function dohHasToken(string $label, string $token): bool
+    {
+        foreach (['https://cloudflare-dns.com/dns-query', 'https://dns.google/resolve'] as $endpoint) {
+            try {
+                $response = Http::timeout(5)->withHeaders(['Accept' => 'application/dns-json'])
+                    ->get($endpoint, ['name' => '_egide-verification.'.$label, 'type' => 'TXT']);
+                if (! $response->successful()) {
+                    continue;
+                }
+                foreach ((array) $response->json('Answer', []) as $answer) {
+                    if (hash_equals($token, trim((string) ($answer['data'] ?? ''), " \t\n\r\0\x0B\""))) {
+                        return true;
+                    }
+                }
+            } catch (\Throwable) {
+            }
         }
 
         return false;
