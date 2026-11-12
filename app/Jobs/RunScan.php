@@ -80,11 +80,6 @@ class RunScan implements ShouldQueue
         return ($this->scan->scope['lab'] ?? false) || ($this->scan->scope['env_type'] ?? null) === 'test';
     }
 
-    private function singleAggressivePass(): bool
-    {
-        return empty($this->scan->credentials['b']) && $this->aggressiveAllowed();
-    }
-
     private function destructiveRoute(string $route): bool
     {
         return AgenticRun::destructive($route);
@@ -1129,65 +1124,68 @@ class RunScan implements ShouldQueue
     private function external(Planner $planner): string
     {
         $accounts = $this->scan->credentials;
-        if (empty($accounts['b'])) {
-            $result = $this->mapExternal($planner);
-            if ($result === 'mapped' && $this->singleAggressivePass()) {
-                $this->agenticBattery($planner);
-                $this->softCheck('Acesso sem autenticação', fn () => $this->unauthTest($this->sessionGetRoutes()));
-            }
-
+        // Scan profundo (mapeamento + conta A pelo navegador + bateria de injeção + caça criativa)
+        // roda SEMPRE, inclusive com 2 contas — não depende da prova cruzada.
+        $result = $this->mapExternal($planner);
+        if ($result !== 'mapped') {
             return $result;
         }
+        if (! $this->aggressiveAllowed()) {
+            return $result;
+        }
+        $this->agenticBattery($planner);
+        // Com uma segunda conta, tenta também a prova de autorização cruzada (BOLA/BFLA) — passo
+        // adicional e não-fatal: se o login/marcador não confirmar, o scan profundo acima permanece.
+        $cross = ! empty($accounts['b']) ? $this->crossAccountProof($planner, $accounts) : null;
+        // unauthTest por último: sessionGetRoutes() já acumulou as rotas da conta A (mapExternal)
+        // e as da conta B (prova cruzada), então roda uma vez só com a cobertura máxima.
+        $this->softCheck('Acesso sem autenticação', fn () => $this->unauthTest($this->sessionGetRoutes()));
+        if (in_array($cross, ['exposure', 'protected'], true)) {
+            return $cross;
+        }
+        // Reteste cuja prova entre contas não pôde ser refeita não é "limpo": marca inconclusivo
+        // em vez de 'mapped', para não parecer que a correção foi confirmada.
+        if (! empty($accounts['b']) && ! empty($this->scan->scope['retest_of'])) {
+            $this->scan->event('test', 'Reteste inconclusivo', 'A prova entre contas do reteste não pôde ser concluída; o resultado não confirma a correção.');
 
-        $this->scan->update(['phase' => 'Exploração entre duas contas']);
+            return 'inconclusive';
+        }
+
+        return $result;
+    }
+
+    private function crossAccountProof(Planner $planner, array $accounts): ?string
+    {
+        $this->scan->update(['phase' => 'Validação de autorização entre contas']);
         $retest = $this->scan->scope['retest_of'] ?? null;
         $previous = $retest ? Scan::where('user_id', $this->scan->user_id)->where('target_id', $this->scan->target_id)
             ->where('result', 'exposure')->find($retest)?->findings()->first()?->evidence : null;
         if ($retest && (empty($previous['path']) || empty($previous['own_path']))) {
-            throw new RuntimeException('A prova original não está disponível para reteste.');
+            return $this->crossInconclusive('A prova original do reteste não está disponível.');
         }
 
         $markers = [$accounts['a']['marker'], $accounts['b']['marker']];
         $paths = $retest ? ['a' => $previous['path'] ?? null, 'b' => $previous['own_path'] ?? null]
             : ['a' => $accounts['a']['path'] ?? null, 'b' => $accounts['b']['path'] ?? null];
         foreach (['a', 'b'] as $actor) {
-            $this->runner('/action', ['kind' => 'switch', 'actor' => $actor]);
-            $observation = $this->observe();
-            if ($observation['page']['captcha'] ?? false) {
-                return $this->challenge();
-            }
-            $page = $observation['page'];
-            $this->fill($page, 'email', $accounts[$actor]['email']);
-            $this->fill($page, 'password', $accounts[$actor]['password']);
-            $login = $this->loginButton($page);
-            if (! $login) {
-                return $this->inconclusive('O formulário de login não apresentou um botão de entrada reconhecível.');
-            }
-            $this->runner('/action', ['kind' => 'click', 'control' => $login['id']]);
-            $observation = $this->observe();
-            if ($observation['page']['captcha'] ?? false) {
-                return $this->challenge();
-            }
-            $stillLogin = collect($observation['page']['controls'] ?? [])->contains(fn ($control) => $control['type'] === 'password'
-                || (! empty($control['login']) && $control['type'] === 'submit' && $control['label'] === $login['label']));
-            if ($stillLogin) {
-                return $this->inconclusive('A conta '.strtoupper($actor).' não conseguiu sair da tela de login.');
+            if (! $this->externalLogin($actor, (array) $accounts[$actor])) {
+                return $this->crossInconclusive('A conta '.strtoupper($actor).' não confirmou o login para a prova entre contas.');
             }
             $this->scan->event('identity', 'Navegando com a conta '.strtoupper($actor), 'Perfil Firefox separado para esta conta de teste.');
-
+            $observation = $this->observe();
             if ($paths[$actor] === null) {
                 $paths[$actor] = $this->discoverExternal($planner, $observation, $actor, $markers);
             } elseif (! $this->externalControl($paths[$actor], $actor, $markers)) {
                 $paths[$actor] = null;
             }
             if ($paths[$actor] === null) {
-                return $this->inconclusive('O GET autorizado da conta '.strtoupper($actor).' não confirmou exclusivamente o marcador de teste esperado.');
+                return $this->crossInconclusive('A conta '.strtoupper($actor).' não confirmou um registro com o marcador de teste. Cadastre a "Rota do registro" apontando para um registro marcado com '.$markers[$actor === 'a' ? 0 : 1].'.');
             }
             $this->observe();
         }
 
         if ($paths['a'] === $paths['b']) {
-            return $this->inconclusive('As duas contas usaram a mesma rota ('.$this->redact($paths['a']).'). Para comparar, cada conta precisa de um registro individual com identificador próprio, como /pedidos/123.');
+            return $this->crossInconclusive('As duas contas usaram a mesma rota ('.$this->redact($paths['a']).'). Cada conta precisa de um registro individual com ID próprio, como /pedidos/123.');
         }
 
         $this->checkStop();
@@ -1220,18 +1218,86 @@ class RunScan implements ShouldQueue
             $this->softCheck('Atribuição em massa', fn () => $this->massTest('a', $paths['a']));
         }
         if ($this->aggressiveAllowed()) {
-            $routes = $this->sessionGetRoutes();
-            $adminRoutes = $this->adminRoutes($routes);
-            $injectable = array_values(array_filter($routes, fn ($route) => str_contains($route, '=')));
+            $adminRoutes = $this->adminRoutes($this->sessionGetRoutes());
             $this->softCheck('Autorização por função (BFLA)', fn () => $this->bflaTest($planner, $adminRoutes));
-            $this->softCheck('Acesso sem autenticação', fn () => $this->unauthTest($routes));
             $this->softCheck('Enumeração de identificador', fn () => $this->idEnumTest($paths['b']));
             $this->softCheck('Exposição excessiva de dados', fn () => $this->excessiveTest('b', $paths['b']));
-            $this->softCheck('Injeção', fn () => $this->injectionTest($injectable));
-            $this->softCheck('SSRF', fn () => $this->ssrfTest($injectable));
         }
 
-        return $result ?? $this->inconclusive('A resposta cruzada não permitiu concluir se o registro ficou exposto.', $evidence);
+        return $result ?? $this->crossInconclusive('A resposta cruzada não permitiu concluir se o registro ficou exposto.');
+    }
+
+    private function crossInconclusive(string $detail): ?string
+    {
+        $this->scan->event('test', 'Prova entre contas não concluída', $detail);
+
+        return null;
+    }
+
+    private function externalLogin(string $actor, array $account): bool
+    {
+        $this->runner('/action', ['kind' => 'switch', 'actor' => $actor]);
+        $observation = $this->observe();
+        if ($observation['page']['captcha'] ?? false) {
+            return false;
+        }
+        $page = $observation['page'];
+        // Sem campo de senha o ator não está numa tela de login: já está autenticado (ex.: a conta A
+        // continua logada do mapExternal). Preencher aqui lançaria "Campo de email ausente".
+        if (! $this->hasControlType($page, ['password'])) {
+            return true;
+        }
+        $login = $this->loginButton($page);
+        if (! $login) {
+            return false;
+        }
+        // Email pode faltar em login de um campo só — só preenche quando existe o campo.
+        if ($this->hasControlType($page, ['email', 'text'])) {
+            $this->fill($page, 'email', (string) ($account['email'] ?? ''));
+        }
+        $this->fill($page, 'password', (string) ($account['password'] ?? ''));
+        $this->runner('/action', ['kind' => 'click', 'control' => $login['id']]);
+        // SPA: depois do POST de login o roteamento é client-side — dá tempo e confirma pela
+        // chamada de auth bem-sucedida na rede OU pela saída da tela de login.
+        for ($attempt = 0; $attempt < 3; $attempt++) {
+            $this->settle();
+            $observation = $this->observe();
+            if ($observation['page']['captcha'] ?? false) {
+                return false;
+            }
+            if ($this->authSucceeded($observation) || ! $this->onLoginScreen($observation, $login)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function authSucceeded(array $observation): bool
+    {
+        // Só conta como login: um POST/PUT/PATCH de autenticação com 2xx. GET de asset (login.css),
+        // redirecionamento 3xx de volta ao login e 401/422 de credencial errada NÃO contam.
+        foreach ($observation['network'] ?? [] as $event) {
+            $status = (int) ($event['status'] ?? 0);
+            $method = strtoupper((string) ($event['method'] ?? ''));
+            if (in_array($method, ['POST', 'PUT', 'PATCH'], true) && $status >= 200 && $status < 300
+                && preg_match('~/(login|auth|session|token|signin|entrar|sign-in)\b~i', (string) ($event['path'] ?? ''))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function onLoginScreen(array $observation, array $login): bool
+    {
+        return collect($observation['page']['controls'] ?? [])->contains(fn ($control) => ($control['type'] ?? '') === 'password'
+            || (! empty($control['login']) && ($control['type'] ?? '') === 'submit' && ($control['label'] ?? null) === ($login['label'] ?? null)));
+    }
+
+    private function hasControlType(array $page, array $types): bool
+    {
+        return collect($page['controls'] ?? [])->contains(fn ($control) => in_array($control['type'] ?? '', $types, true));
     }
 
     private function sessionGetRoutes(): array
@@ -1408,13 +1474,6 @@ class RunScan implements ShouldQueue
             'A conta '.strtoupper($writer).' alterou um campo do registro da conta '.strtoupper($owner).'.'
             .($restored ? ' O valor original foi restaurado.' : ' Atenção: não foi possível restaurar o valor original.'),
             $evidence);
-    }
-
-    private function inconclusive(string $detail, ?array $evidence = null): string
-    {
-        $this->scan->event('test', 'Prova inconclusiva', $detail, $evidence);
-
-        return 'inconclusive';
     }
 
     private function challenge(): string

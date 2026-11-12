@@ -85,7 +85,7 @@ class ScopeGateTest extends TestCase
         return $method->invoke($job);
     }
 
-    private function singleAggressivePass(array $credentials, array $scope): bool
+    private function aggressiveAllowedWith(array $credentials, array $scope): bool
     {
         $scan = new Scan(['scope' => $scope, 'credentials' => $credentials]);
         $job = new RunScan('x');
@@ -93,7 +93,7 @@ class ScopeGateTest extends TestCase
         $prop = $ref->getProperty('scan');
         $prop->setAccessible(true);
         $prop->setValue($job, $scan);
-        $method = $ref->getMethod('singleAggressivePass');
+        $method = $ref->getMethod('aggressiveAllowed');
         $method->setAccessible(true);
 
         return $method->invoke($job);
@@ -119,16 +119,45 @@ class ScopeGateTest extends TestCase
         $this->assertFalse($this->aggressiveAllowed(['env_type' => null]));
     }
 
-    public function test_single_account_aggressive_sweep_runs_only_in_test_env(): void
+    public function test_aggressive_battery_is_not_gated_on_account_count(): void
     {
-        // One test account + explicit test env → single-identity battery (injection/SSRF/unauth) runs.
-        $this->assertTrue($this->singleAggressivePass(['a' => ['email' => 'a@x']], ['env_type' => 'test']));
-        // One account + production → map only, no aggressive sweep (fail closed).
-        $this->assertFalse($this->singleAggressivePass(['a' => ['email' => 'a@x']], ['env_type' => 'production']));
-        // Account B present → the two-account exploration path owns the battery, not this gate.
-        $this->assertFalse($this->singleAggressivePass(
+        // The deep creative battery (mapExternal + agenticBattery) now runs whenever the env is
+        // aggressive-eligible, whether the scan has one account or two. Account count never gates it;
+        // only the env does. A second account adds the cross-account proof — it does not unlock the battery.
+        $this->assertTrue($this->aggressiveAllowedWith(['a' => ['email' => 'a@x']], ['env_type' => 'test']));
+        $this->assertTrue($this->aggressiveAllowedWith(
             ['a' => ['email' => 'a@x'], 'b' => ['email' => 'b@x']], ['env_type' => 'test']
         ));
+        // Production stays mapping-only regardless of how many accounts are configured (fail closed).
+        $this->assertFalse($this->aggressiveAllowedWith(['a' => ['email' => 'a@x']], ['env_type' => 'production']));
+        $this->assertFalse($this->aggressiveAllowedWith(
+            ['a' => ['email' => 'a@x'], 'b' => ['email' => 'b@x']], ['env_type' => 'production']
+        ));
+    }
+
+    private function authSucceeded(array $network): bool
+    {
+        $job = new RunScan('x');
+        $ref = new \ReflectionMethod($job, 'authSucceeded');
+        $ref->setAccessible(true);
+
+        return $ref->invoke($job, ['network' => $network]);
+    }
+
+    public function test_auth_succeeded_only_trusts_a_successful_auth_write(): void
+    {
+        // A write (POST/PUT/PATCH) to an auth path with 2xx is the one real signal of a login.
+        $this->assertTrue($this->authSucceeded([['method' => 'POST', 'path' => '/api/auth/login', 'status' => 200]]));
+        $this->assertTrue($this->authSucceeded([['method' => 'PUT', 'path' => '/session', 'status' => 204]]));
+
+        // Everything that merely looks auth-ish but does not prove a login must NOT count:
+        $this->assertFalse($this->authSucceeded([['method' => 'GET', 'path' => '/assets/login.css', 'status' => 200]]), 'asset GET');
+        $this->assertFalse($this->authSucceeded([['method' => 'GET', 'path' => '/api/session', 'status' => 200]]), 'session GET');
+        $this->assertFalse($this->authSucceeded([['method' => 'GET', 'path' => '/login', 'status' => 302]]), 'redirect back to login');
+        $this->assertFalse($this->authSucceeded([['method' => 'POST', 'path' => '/api/auth/login', 'status' => 401]]), 'bad credentials');
+        $this->assertFalse($this->authSucceeded([['method' => 'POST', 'path' => '/api/auth/login', 'status' => 422]]), 'validation error');
+        $this->assertFalse($this->authSucceeded([['method' => 'POST', 'path' => '/api/orders', 'status' => 200]]), 'non-auth write');
+        $this->assertFalse($this->authSucceeded([]), 'no traffic');
     }
 
     public function test_destructive_route_filter_covers_pt_br_and_english_verbs(): void
