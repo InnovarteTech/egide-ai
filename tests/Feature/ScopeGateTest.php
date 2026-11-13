@@ -160,6 +160,19 @@ class ScopeGateTest extends TestCase
         $this->assertFalse($this->authSucceeded([]), 'no traffic');
     }
 
+    public function test_auth_paths_are_skipped_by_race_and_prototype_probes(): void
+    {
+        foreach ([
+            '/api/auth/login', '/login', '/logout', '/api/session', '/api/sessions', '/logins', '/api/tokens',
+            '/passwords', '/reset-password', '/entrar', '/auth/token', '/oauth/authorize', '/api/v2/authenticate', '/mfa/verify',
+        ] as $path) {
+            $this->assertTrue($this->invokePrivate('isAuthPath', [$path]), $path.' deveria ser tratada como rota de auth');
+        }
+        foreach (['/api/tickets', '/api/appointments', '/api/sectors', '/api/tickets/42'] as $path) {
+            $this->assertFalse($this->invokePrivate('isAuthPath', [$path]), $path.' não é rota de auth');
+        }
+    }
+
     public function test_destructive_route_filter_covers_pt_br_and_english_verbs(): void
     {
         foreach ([

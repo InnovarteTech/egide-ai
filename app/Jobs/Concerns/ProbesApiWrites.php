@@ -201,4 +201,44 @@ trait ProbesApiWrites
             $this->scan->event('finding', 'Race condition confirmada', $ok.' de 5 requisições paralelas aceitas em '.$path.'.', $assessment['finding']['evidence']);
         }
     }
+
+    private function writeMatrixBattery(): void
+    {
+        if (! $this->aggressiveAllowed()) {
+            return;
+        }
+        $this->scan->update(['phase' => 'Escrita sem sessão, concorrência e protótipo']);
+        $seen = [];
+        $verb = $race = $proto = 0;
+        foreach ($this->inventory as $endpoint) {
+            $path = (string) ($endpoint['path'] ?? '');
+            if ($path === '' || isset($seen[$path]) || ! $this->inScope($path)) {
+                continue;
+            }
+            $seen[$path] = true;
+            if (! $this->budgetAllows(2)) {
+                break;
+            }
+            if ($verb < 10) {
+                $this->softCheck('Métodos de escrita sem sessão', fn () => $this->verbMatrixTest($path));
+                $verb++;
+            }
+            if ($this->isAuthPath($path) || $this->destructiveRoute($path) || ! Scope::allows($this->scan->scope, 'POST', $path)) {
+                continue;
+            }
+            if ($proto < 4) {
+                $this->softCheck('Prototype pollution', fn () => $this->prototypePollutionTest($path, $path));
+                $proto++;
+            }
+            if ($race < 3) {
+                $this->softCheck('Race condition', fn () => $this->raceTest($path));
+                $race++;
+            }
+        }
+    }
+
+    private function isAuthPath(string $path): bool
+    {
+        return (bool) preg_match('~(?:^|[/_.-])(login|logout|signin|signup|sign-in|sign-up|auth|oauth|entrar|sair|senha|password|passwd|token|session|sessao|mfa|otp|2fa)~i', $path);
+    }
 }

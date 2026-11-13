@@ -1133,12 +1133,9 @@ class RunScan implements ShouldQueue
         if (! $this->aggressiveAllowed()) {
             return $result;
         }
+        $this->writeMatrixBattery();
         $this->agenticBattery($planner);
-        // Com uma segunda conta, tenta também a prova de autorização cruzada (BOLA/BFLA) — passo
-        // adicional e não-fatal: se o login/marcador não confirmar, o scan profundo acima permanece.
         $cross = ! empty($accounts['b']) ? $this->crossAccountProof($planner, $accounts) : null;
-        // unauthTest por último: sessionGetRoutes() já acumulou as rotas da conta A (mapExternal)
-        // e as da conta B (prova cruzada), então roda uma vez só com a cobertura máxima.
         $this->softCheck('Acesso sem autenticação', fn () => $this->unauthTest($this->sessionGetRoutes()));
         if (in_array($cross, ['exposure', 'protected'], true)) {
             return $cross;
