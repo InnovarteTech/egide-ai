@@ -24,3 +24,5 @@ Homestead.yaml
 Thumbs.db
 
 /runner/__pycache__/
+/.agents/skills/
+/.agents/vendor/
