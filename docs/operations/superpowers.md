@@ -4,7 +4,7 @@
 
 ## Instalar somente neste projeto
 
-O Codex reconhece skills do projeto em `.agents/skills/`. Os scripts abaixo baixam a versão `v7.0.2` para `.agents/vendor/superpowers/` e criam links locais em `.agents/skills/`. Essas duas pastas são ignoradas pelo Git; nenhuma instalação é feita em `~/.codex` ou `~/.agents`. [Referência do Codex para skills de projeto](https://developers.openai.com/api/reference/cli).
+O Codex reconhece skills do projeto em `.agents/skills/`. Os scripts abaixo baixam a versão `v7.0.2` para `.agents/vendor/superpowers/` e criam links locais em `.agents/skills/`. Essas duas pastas são ignoradas pelo Git; nenhuma instalação é feita em `~/.codex` ou `~/.agents`. O [mapa da pasta `.agents`](../../.agents/README.md) explica o que é versionado e o que é gerado. [Referência do Codex para skills de projeto](https://developers.openai.com/api/reference/cli).
 
 No Windows PowerShell, na raiz do repositório:
 
