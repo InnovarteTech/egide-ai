@@ -1,22 +1,26 @@
 # Superpowers em refatorações grandes
 
-[Superpowers](https://github.com/obra/superpowers) é um plugin com skills de descoberta, planejamento, execução, depuração e revisão. Ele organiza **como** o agente trabalha; o [AGENTS.md](../../AGENTS.md) e os [guias da Égide](../index.md) fornecem o contexto do projeto. A instalação é feita no Codex de cada pessoa, não pelo clone deste repositório. Os arquivos em `docs/superpowers/` são planos históricos, não uma instalação do plugin.
+[Superpowers](https://github.com/obra/superpowers) reúne skills de descoberta, planejamento, execução, depuração e revisão. Ele organiza **como** o agente trabalha; o [AGENTS.md](../../AGENTS.md) e os [guias da Égide](../index.md) fornecem o contexto do projeto. A instalação abaixo fica **somente neste checkout**. Os arquivos em `docs/superpowers/` são planos históricos, não uma instalação das skills.
 
-## Instalar no Codex
+## Instalar somente neste projeto
 
-No **Codex App**, abra **Plugins**, procure **Superpowers** na seção de desenvolvimento e instale. No **Codex CLI**, o menu `/plugins` também permite buscar e instalar Superpowers. Essas são as opções descritas pelo [projeto oficial](https://github.com/obra/superpowers#codex-app).
+O Codex reconhece skills do projeto em `.agents/skills/`. Os scripts abaixo baixam a versão `v7.0.2` para `.agents/vendor/superpowers/` e criam links locais em `.agents/skills/`. Essas duas pastas são ignoradas pelo Git; nenhuma instalação é feita em `~/.codex` ou `~/.agents`. [Referência do Codex para skills de projeto](https://developers.openai.com/api/reference/cli).
 
-Para instalar diretamente do marketplace do projeto original no Codex CLI, a partir de qualquer pasta:
+No Windows PowerShell, na raiz do repositório:
 
-```text
-codex plugin marketplace add obra/superpowers --ref main
-codex plugin add superpowers@superpowers-dev
-codex plugin list --marketplace superpowers-dev --json
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-superpowers.ps1
+Test-Path .agents/skills/using-superpowers/SKILL.md
 ```
 
-O último comando deve mostrar `installed: true` e `enabled: true`. Se o marketplace já estiver cadastrado, pule o primeiro comando. Confira o nome retornado por `codex plugin marketplace list` caso o projeto original mude o identificador `superpowers-dev`. Inicie uma **nova sessão** do Codex após instalar para que as skills sejam carregadas. O plugin não instala PHP, Composer, Node, Docker ou dependências da Égide.
+Em Linux, macOS ou WSL:
 
-Quem usa **Claude Code** pode instalar o mesmo conjunto de skills separadamente com `/plugin install superpowers@claude-plugins-official`, conforme o [guia oficial](https://github.com/obra/superpowers#claude-code). Uma instalação no Codex não instala o plugin no Claude Code, nem o inverso.
+```bash
+bash scripts/install-superpowers.sh
+test -f .agents/skills/using-superpowers/SKILL.md
+```
+
+O teste deve retornar verdadeiro/sucesso. Abra uma **nova sessão neste repositório** para o Codex carregar as skills locais. Os scripts exigem Git e acesso ao GitHub; não instalam PHP, Composer, Node, Docker ou dependências da Égide. Para atualizar a versão, revise o tag nos dois scripts, reinstale a cópia local e verifique as instruções da nova versão. A instalação global pelo menu Plugins não é necessária para este projeto.
 
 ## Quando usar
 
