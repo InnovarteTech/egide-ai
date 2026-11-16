@@ -13,6 +13,8 @@ final class Planner
 {
     public const LOCAL = ['claude_local' => 'claude', 'codex' => 'codex'];
 
+    private array $usage = [];
+
     public static function localAvailable(bool $external = false, string $engine = 'codex'): bool
     {
         $binary = config("egide.{$engine}_binary");
@@ -144,7 +146,7 @@ final class Planner
             ],
             'required' => ['risk', 'summary', 'priorities'],
         ];
-        $result = $this->decide($scan, $instruction, $facts, $schema);
+        $result = $this->decide($scan, $instruction, $facts, $schema, 'strategist', false);
         if (! in_array($result['risk'] ?? null, $schema['properties']['risk']['enum'], true) || ! is_string($result['summary'] ?? null)) {
             throw new RuntimeException('O resumo executivo veio em formato inválido.');
         }
@@ -177,8 +179,31 @@ final class Planner
         }
     }
 
-    private function decide(Scan $scan, string $instruction, array $observation, array $schema, string $role = 'strategist'): array
+    public function tokens(Scan $scan): array
     {
+        return $this->usage[$scan->getKey() ?? spl_object_id($scan)] ?? ['input' => 0, 'output' => 0];
+    }
+
+    private function meter(Scan $scan, mixed $usage): void
+    {
+        if (! is_array($usage)) {
+            return;
+        }
+        $key = $scan->getKey() ?? spl_object_id($scan);
+        $input = (int) ($usage['input_tokens'] ?? $usage['prompt_tokens'] ?? 0)
+            + (int) ($usage['cache_creation_input_tokens'] ?? 0) + (int) ($usage['cache_read_input_tokens'] ?? 0);
+        $this->usage[$key] = [
+            'input' => ($this->usage[$key]['input'] ?? 0) + max(0, $input),
+            'output' => ($this->usage[$key]['output'] ?? 0) + max(0, (int) ($usage['output_tokens'] ?? $usage['completion_tokens'] ?? 0)),
+        ];
+    }
+
+    private function decide(Scan $scan, string $instruction, array $observation, array $schema, string $role = 'strategist', bool $focus = true): array
+    {
+        $client = $focus && is_string($scan->scope['focus'] ?? null) ? trim($scan->scope['focus']) : '';
+        if ($client !== '') {
+            $observation['foco_do_cliente'] = mb_substr($client, 0, 500);
+        }
         $input = json_encode($observation, JSON_THROW_ON_ERROR | JSON_INVALID_UTF8_SUBSTITUTE);
         if ($scan->provider === 'codex') {
             return $this->codex($scan, $instruction, $input, $schema);
@@ -224,6 +249,7 @@ final class Planner
             $detail = mb_substr((string) ($response->json('error.message') ?? ''), 0, 200);
             throw new RuntimeException("O provedor recusou a chamada (HTTP {$response->status()}). ".($detail ?: 'Confira a chave e o modelo.'));
         }
+        $this->meter($scan, $response->json('usage'));
 
         if ($outputPath === 'anthropic' && $response->json('stop_reason') === 'refusal') {
             throw new RuntimeException('O Claude recusou a decisão por política de segurança. Confira se o escopo descreve um teste autorizado.');
@@ -269,6 +295,7 @@ final class Planner
             if (! $process->isSuccessful() || ! is_array($result) || ($result['is_error'] ?? true)) {
                 throw new RuntimeException('O Claude local não respondeu. Confira o login do Claude Code.');
             }
+            $this->meter($scan, $result['usage'] ?? null);
             if (! is_array($result['structured_output'] ?? null)) {
                 throw new RuntimeException('O Claude local devolveu uma decisão inválida.');
             }

@@ -20,18 +20,25 @@ class NotifyScan implements ShouldQueue
 
     public function handle(): void
     {
-        $scan = Scan::with('findings')->find($this->scanId);
+        $scan = Scan::find($this->scanId);
         $url = $scan ? Workspace::where('user_id', $scan->user_id)->first()?->webhook_url : null;
         if (! $scan || ! $url) {
             return;
         }
 
-        $counts = $scan->findings->countBy('severity');
+        Webhook::send($url, $this->payload($scan));
+    }
+
+    public function payload(Scan $scan): array
+    {
+        $findings = $scan->findings()->achados()->get();
+        $counts = $findings->countBy('severity');
         $risk = $scan->summary['risk'] ?? null;
         $text = '[Égide AI] '.$scan->name.' · '.($scan->regression ? 'REGRESSÃO: ' : '')
             .($scan->status === 'completed' ? 'sessão concluída' : 'sessão interrompida')
-            .($risk ? ' · risco '.$risk : '').' · '.$scan->findings->count().' achado(s)';
-        Webhook::send($url, [
+            .($risk ? ' · risco '.$risk : '').' · '.$findings->count().' achado(s)';
+
+        return [
             'text' => $text, 'content' => $text,
             'scan' => [
                 'id' => $scan->id, 'name' => $scan->name, 'status' => $scan->status, 'result' => $scan->result,
@@ -40,6 +47,6 @@ class NotifyScan implements ShouldQueue
                 'new_findings' => $this->newFindings,
                 'report_url' => url('/sessoes/'.$scan->id.'/relatorio/imprimir'),
             ],
-        ]);
+        ];
     }
 }

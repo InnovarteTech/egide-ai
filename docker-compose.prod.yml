@@ -51,6 +51,7 @@ x-browser: &browser
   image: egide-browser:prod
   pull_policy: never
   restart: unless-stopped
+  init: true
   cap_add:
     - NET_ADMIN
   shm_size: 256m

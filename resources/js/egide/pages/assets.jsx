@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Link, useForm, usePage } from '@inertiajs/react';
-import { ArrowLeft, ArrowRight, Check, ChevronRight, Copy, Globe2, Info, Laptop, Layers3, LockKeyhole, Pencil, Plus, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Bird, Check, ChevronRight, Copy, Globe2, Info, Laptop, Layers3, LockKeyhole, Pencil, Plus, RefreshCw, ShieldAlert, ShieldCheck, Trash2, TriangleAlert, Upload } from 'lucide-react';
 import { formatDate, plural } from '../format';
 import { Badge, useTab, Tabs, TabPanel, Dialog, ConfirmAction, CopyBox, Empty, Field } from '../ui';
 import { Layout, Heading } from '../layout';
@@ -8,15 +8,22 @@ import { Layout, Heading } from '../layout';
 const assetSections = {
     ambiente: ['name', 'origin', 'api_origin', 'entry_path', 'local_port', 'environment_type'],
     escopo: ['rules', 'denied'],
+    seguranca: ['safety', 'approved_writes', 'max_rps', 'focus'],
     contas: ['record_hint', 'email_a', 'password_a', 'marker_a', 'origin_a', 'path_a', 'role_a', 'email_b', 'password_b', 'marker_b', 'origin_b', 'path_b', 'role_b'],
 };
-const steps = ['ambiente', 'escopo', 'contas'];
+const steps = ['ambiente', 'escopo', 'seguranca', 'contas'];
+const safetyModes = [
+    ['canario', 'Canário', 'Escritas destrutivas (PUT, PATCH e DELETE fora da escrita de teste configurada) e ações de efeito externo são bloqueadas no proxy. Só passam a escrita de teste configurada e as escritas aprovadas.', Bird],
+    ['livre', 'Livre', 'Escritas destrutivas autorizadas neste ambiente de teste. Ações de efeito externo continuam bloqueadas no proxy.', ShieldAlert],
+];
+const surfaceFormats = { openapi: 'OpenAPI 3', swagger: 'Swagger 2', postman: 'Postman', har: 'HAR' };
 const newMarker = () => 'EGIDE-' + Array.from(crypto.getRandomValues(new Uint8Array(8)), byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
 const blank = target => {
-    if (!target) return { name: '', origin: '', api_origin: '', entry_path: '/', rules: 'GET /', denied: '', email_a: '', password_a: '', email_b: '', password_b: '', marker_a: newMarker(), marker_b: newMarker(), origin_a: '', origin_b: '', path_a: '', path_b: '', role_a: 'normal', role_b: 'normal', environment_type: 'production', record_hint: '', local_port: '', write_test: false };
+    if (!target) return { name: '', origin: '', api_origin: '', entry_path: '/', rules: 'GET /', denied: '', email_a: '', password_a: '', email_b: '', password_b: '', marker_a: newMarker(), marker_b: newMarker(), origin_a: '', origin_b: '', path_a: '', path_b: '', role_a: 'normal', role_b: 'normal', environment_type: 'production', record_hint: '', local_port: '', write_test: false, safety: 'canario', approved_writes: '', max_rps: '', focus: '' };
     const e = target.edit;
     return {
         name: e.name, origin: e.origin, api_origin: e.api_origin, entry_path: e.entry_path, rules: e.rules, denied: e.denied,
+        safety: e.safety || 'canario', approved_writes: e.approved_writes ?? '', max_rps: e.max_rps ?? '', focus: e.focus ?? '',
         record_hint: e.record_hint, write_test: e.write_test, environment_type: e.environment_type || 'production', local_port: target.local_port ? String(target.local_port) : '',
         email_a: e.accounts.a.email, password_a: '', marker_a: e.accounts.a.marker || newMarker(), origin_a: e.accounts.a.origin, path_a: e.accounts.a.path, role_a: e.accounts.a.role || 'normal',
         email_b: e.accounts.b.email, password_b: '', marker_b: e.accounts.b.marker || newMarker(), origin_b: e.accounts.b.origin, path_b: e.accounts.b.path, role_b: e.accounts.b.role || 'normal',
@@ -35,7 +42,7 @@ function AssetDialog({ open, onClose, localTargets, target }) {
     const submit = event => {
         event.preventDefault();
         if (step < steps.length - 1) { setSection(steps[step + 1]); return; }
-        form.transform(data => ({ ...data, api_origin: split ? data.api_origin : '', marker_a: data.email_b ? data.marker_a : '', marker_b: data.email_b ? data.marker_b : '', write_test: data.email_b && data.path_a ? data.write_test : false }));
+        form.transform(data => ({ ...data, api_origin: split ? data.api_origin : '', marker_a: data.email_b ? data.marker_a : '', marker_b: data.email_b ? data.marker_b : '', write_test: data.email_b && data.path_a ? data.write_test : false, approved_writes: data.environment_type === 'test' ? data.approved_writes : '' }));
         const onError = errors => {
             const first = steps.find(key => assetSections[key].some(field => errors[field]));
             if (first) setSection(first);
@@ -55,7 +62,8 @@ function AssetDialog({ open, onClose, localTargets, target }) {
     const close = () => { form.reset('password_a', 'password_b'); onClose(); };
     const copy = value => { navigator.clipboard?.writeText(value).then(() => { setCopied(value); setTimeout(() => setCopied(''), 1600); }).catch(() => {}); };
     const markerField = 'marker_' + actor;
-    return <Dialog open={open} onClose={close} locked={form.processing} title={editing ? 'Editar ambiente' : 'Adicionar ambiente'} description="Três passos: o app, o que o agente pode acessar e as contas de teste." size="dialog-lg" footer={<>
+    const production = form.data.environment_type !== 'test';
+    return <Dialog open={open} onClose={close} locked={form.processing} title={editing ? 'Editar ambiente' : 'Adicionar ambiente'} description="Quatro passos: o app, o que o agente pode acessar, a segurança do teste e as contas de teste." size="dialog-lg" footer={<>
         {step > 0
             ? <button type="button" className="button secondary" onClick={() => setSection(steps[step - 1])}><ArrowLeft size={16} /> Voltar</button>
             : <button type="button" className="button secondary" onClick={close}>Cancelar</button>}
@@ -66,7 +74,8 @@ function AssetDialog({ open, onClose, localTargets, target }) {
         <Tabs name="ativo" label="Etapas do cadastro" value={section} onChange={setSection} className="dialog-tabs" tabs={[
             { key: 'ambiente', step: 1, label: 'App', alert: failing('ambiente') },
             { key: 'escopo', step: 2, label: 'Escopo', alert: failing('escopo') },
-            { key: 'contas', step: 3, label: 'Contas de teste', alert: failing('contas') },
+            { key: 'seguranca', step: 3, label: 'Segurança', alert: failing('seguranca') },
+            { key: 'contas', step: 4, label: 'Contas de teste', alert: failing('contas') },
         ]} />
         <form id="asset-form" onSubmit={submit} noValidate>
             {section === 'ambiente' && <TabPanel name="ativo" id="ambiente" className="form-stack">
@@ -104,6 +113,29 @@ function AssetDialog({ open, onClose, localTargets, target }) {
                 {form.data.rules.trim() === '* /*'
                     ? <p className="form-note form-note-warn"><TriangleAlert size={16} /><span>Tudo liberado{split ? ', no app e na API' : ''}, menos as rotas bloqueadas. Use só em ambiente de teste: o agente pode disparar escrita de verdade.</span></p>
                     : <p className="form-note"><LockKeyhole size={16} /><span>O proxy barra qualquer chamada fora dessas regras{split ? ', no app e na API' : ''}. Libere o POST do login, como <code>POST /auth/login</code>. <code>* /*</code> libera todos os métodos.</span></p>}
+            </TabPanel>}
+            {section === 'seguranca' && <TabPanel name="ativo" id="seguranca" className="form-stack">
+                {production ? <p className="form-note"><LockKeyhole size={16} /><span>Produção roda só em mapeamento: PUT, PATCH, DELETE e ações de efeito externo são sempre bloqueados no proxy. Para testar escrita, marque o ambiente como teste na etapa App.</span></p>
+                    : <>
+                        <div className="field">
+                            <span className="field-title" id="safety-mode">Segurança do teste</span>
+                            <div className="mode-options two" role="radiogroup" aria-labelledby="safety-mode">{safetyModes.map(([value, label, detail, Icon]) => <label key={value} className={'mode-option ' + (form.data.safety === value ? 'selected' : '')}>
+                                <input type="radio" name="safety" className="sr-only" checked={form.data.safety === value} onChange={() => form.setData('safety', value)} data-autofocus={form.data.safety === value || undefined} />
+                                <span className="mode-icon"><Icon size={19} /></span>
+                                <strong>{label}</strong>
+                                <small>{detail}</small>
+                                <span className="mode-check" aria-hidden="true"><Check size={13} /></span>
+                            </label>)}</div>
+                            {form.errors.safety && <small className="field-error" role="alert"><TriangleAlert size={13} />{form.errors.safety}</small>}
+                        </div>
+                        <Field label="Escritas aprovadas (opcional)" error={form.errors.approved_writes} help={<>Uma por linha, como <code>POST /convites</code> ou <code>DELETE /reservas/*</code>. Libera no proxy ações irreversíveis ou de efeito externo que você aprovou.</>}>
+                            <textarea rows="4" className="mono-input" value={form.data.approved_writes} onChange={e => form.setData('approved_writes', e.target.value)} placeholder="POST /convites" />
+                        </Field>
+                    </>}
+                <Field label="Limite de requisições por segundo (opcional)" error={form.errors.max_rps} help="De 0,1 a 50. Em branco, o proxy só desacelera quando o alvo responde 429.">{input('max_rps', { type: 'number', min: 0.1, max: 50, step: 0.1, inputMode: 'decimal', placeholder: '5', ...(production && { 'data-autofocus': true }) })}</Field>
+                <Field label="Foco do teste (orientação para a IA)" error={form.errors.focus} help={form.data.focus.length + '/500. A IA prioriza o que você descrever, sem sair do escopo.'}>
+                    <textarea rows="3" maxLength={500} value={form.data.focus} onChange={e => form.setData('focus', e.target.value)} placeholder="Priorize o módulo de faturas e a troca de plano." />
+                </Field>
             </TabPanel>}
             {section === 'contas' && <TabPanel name="ativo" id="contas" className="form-stack">
                 <p className="form-note"><Info size={16} /><span>A Égide entra com a conta B e tenta abrir um registro da conta A. Se o marcador de A aparecer, a falha está provada. Com uma conta só, ela apenas mapeia a navegação.</span></p>
@@ -186,8 +218,55 @@ export function Assets({ targets, localTargets }) {
         {editing && <AssetDialog key={editing.id} open target={editing} onClose={() => setEditing(null)} localTargets={localTargets} />}
     </Layout>;
 }
+export function Preflight({ items = [], title = 'Pré-voo' }) {
+    const ready = items.filter(item => item.ok).length;
+    return <div className="preflight">
+        <div className="preflight-head"><strong>{title}</strong><Badge tone={ready === items.length ? 'green' : 'amber'}>{ready} de {items.length} prontos</Badge></div>
+        <ul className="preflight-list">{items.map(item => <li key={item.label} className={item.ok ? 'is-ok' : 'is-pending'}>
+            <span className="preflight-icon" aria-hidden="true">{item.ok ? <Check size={13} /> : <TriangleAlert size={12} />}</span>
+            <span><strong>{item.label}<span className="sr-only">{item.ok ? ': pronto' : ': pendente'}</span></strong><small>{item.detail}</small></span>
+        </li>)}</ul>
+    </div>;
+}
+function Surface({ target }) {
+    const meta = target.surface_meta;
+    const [via, setVia] = useState('arquivo');
+    const file = useRef(null);
+    const form = useForm({ arquivo: null, url: '' });
+    const submit = event => {
+        event.preventDefault();
+        form.transform(data => (via === 'arquivo' ? { arquivo: data.arquivo } : { url: data.url }));
+        form.post('/ambientes/' + target.id + '/superficie', {
+            forceFormData: true, preserveScroll: true, preserveState: true,
+            onSuccess: () => { form.reset(); if (file.current) file.current.value = ''; },
+        });
+    };
+    const switchTo = value => { setVia(value); form.clearErrors(); };
+    return <div className="surface-box">
+        <div className="preflight-head"><strong>Superfície da API</strong>{meta?.count ? <Badge tone="green">{plural(meta.count, 'rota', 'rotas')}</Badge> : <Badge>Opcional</Badge>}</div>
+        {meta?.count ? <div className="surface-meta">
+            <span>{surfaceFormats[meta.format] ?? meta.format} · {meta.via === 'url' ? 'por URL' : 'por arquivo'}{meta.imported_at && ' · ' + formatDate(meta.imported_at)}</span>
+            {meta.name && <code>{meta.name}</code>}
+            {meta.skipped_hosts?.length > 0 && <small>Endereços fora do ambiente ignorados: {meta.skipped_hosts.slice(0, 3).join(', ')}</small>}
+            <ConfirmAction href={'/ambientes/' + target.id + '/superficie'} method="delete" title="Remover a superfície importada?" description="As rotas importadas deixam de entrar nas próximas sessões. As sessões já feitas continuam no histórico." confirmLabel="Remover superfície" className="text-link surface-remove"><Trash2 size={14} /> Remover</ConfirmAction>
+        </div> : <p>Envie OpenAPI, Swagger, Postman ou HAR para a Égide testar rotas que a navegação não alcança. Só entram rotas das origens deste ambiente.</p>}
+        <form className="surface-form" onSubmit={submit} noValidate>
+            <div className="segmented" role="group" aria-label={'Origem do documento de ' + target.name}>
+                <button type="button" aria-pressed={via === 'arquivo'} onClick={() => switchTo('arquivo')}>Arquivo</button>
+                <button type="button" aria-pressed={via === 'url'} onClick={() => switchTo('url')}>URL</button>
+            </div>
+            {via === 'arquivo'
+                ? <Field label="Arquivo" error={form.errors.arquivo} help="JSON, YAML ou HAR, até 5 MB."><input ref={file} type="file" accept=".json,.yaml,.yml,.har,application/json" onChange={e => form.setData('arquivo', e.target.files?.[0] ?? null)} /></Field>
+                : <Field label="URL do documento" error={form.errors.url} help={target.verified_at ? 'HTTPS de uma das origens do ambiente, sem redirecionamento.' : 'Verifique o domínio antes de importar por URL, ou envie o arquivo.'}><input type="url" inputMode="url" autoComplete="off" value={form.data.url} onChange={e => form.setData('url', e.target.value)} placeholder={(target.api_origin || target.origin) + '/openapi.json'} /></Field>}
+            <button type="submit" className="button secondary compact" disabled={form.processing || (via === 'arquivo' ? !form.data.arquivo : !form.data.url)}><Upload size={15} /> {form.processing ? 'Importando…' : meta?.count ? 'Substituir superfície' : 'Importar superfície'}</button>
+        </form>
+    </div>;
+}
+const safetyBadge = target => target.environment_type !== 'test' ? ['Só mapeamento', 'neutral'] : target.safety === 'livre' ? ['Livre', 'amber'] : ['Canário', 'violet'];
 function AssetRow({ target, onEdit }) {
     const schedule = target.schedule ?? 'off';
+    const [safety, safetyTone] = safetyBadge(target);
+    const ready = (target.preflight ?? []).filter(item => item.ok).length;
     return <li className="asset-row">
         <div className="asset-head">
             <span className={'asset-icon ' + (target.verified_at ? 'is-verified' : '')}>{target.verified_at ? <ShieldCheck size={19} /> : <Globe2 size={19} />}</span>
@@ -195,6 +274,7 @@ function AssetRow({ target, onEdit }) {
             <div className="asset-tags">
                 {target.local_port && <Badge tone="violet">{'Local · ' + target.local_port}</Badge>}
                 {target.write_test && <Badge tone="amber">Escrita</Badge>}
+                <Badge tone={safetyTone}>{safety}</Badge>
                 <Badge tone={target.verified_at ? 'green' : 'neutral'}>{target.verified_at ? 'Verificado' : 'Pendente'}</Badge>
             </div>
             <div className="asset-actions">
@@ -228,5 +308,12 @@ function AssetRow({ target, onEdit }) {
                 <Link href={'/ambientes/' + target.id + '/verificar'} method="post" as="button" className="button primary compact"><ShieldCheck size={16} /> Verificar domínio</Link>
             </div>
         </div>}
+        <details className="asset-prep">
+            <summary><ChevronRight size={15} />Pré-voo e superfície<Badge tone={ready === target.preflight?.length ? 'green' : 'amber'}>{ready} de {target.preflight?.length ?? 0}</Badge>{target.surface_meta?.count > 0 && <Badge tone="violet">{plural(target.surface_meta.count, 'rota importada', 'rotas importadas')}</Badge>}</summary>
+            <div className="asset-prep-body">
+                <Preflight items={target.preflight} />
+                <Surface target={target} />
+            </div>
+        </details>
     </li>;
 }

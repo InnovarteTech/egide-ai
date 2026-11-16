@@ -1,8 +1,9 @@
 import { Link, useForm, usePage } from '@inertiajs/react';
-import { ArrowRight, Check, CirclePlay, Globe2, Info, Monitor, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
+import { ArrowRight, Check, CirclePlay, Crosshair, Globe2, Info, Monitor, RefreshCw, ShieldCheck, TriangleAlert } from 'lucide-react';
 import { scanLabel } from '../format';
 import { Field } from '../ui';
 import { Layout, Heading } from '../layout';
+import { Preflight } from './assets';
 
 export function NewSession({ targets, initial, externalEngine, labEngine, initialAgent, previous }) {
     const { auth } = usePage().props;
@@ -36,6 +37,9 @@ export function NewSession({ targets, initial, externalEngine, labEngine, initia
                         <Field label="Ambiente" error={form.errors.target_id}><select value={form.data.target_id} required disabled={!!previous} onChange={e => form.setData('target_id', e.target.value)}><option value="">Selecione um ambiente verificado</option>{targets.map(item => <option value={item.id} key={item.id}>{item.name} · {item.origin}</option>)}</select></Field>
                         {blocked && <div className="callout"><Info size={16} /><div><strong>Falta preparar o ambiente</strong><div className="callout-links">{!target && <Link href="/ambientes" className="text-link">Verificar um ambiente <ArrowRight size={14} /></Link>}{!externalEngine && (auth?.is_admin ? <Link href="/admin?aba=motor" className="text-link">Configurar o motor de IA <ArrowRight size={14} /></Link> : <span>O motor de IA ainda não foi ativado pelo administrador.</span>)}</div></div></div>}
                         {target && externalEngine && <p className="form-note"><ShieldCheck size={16} /><span>{target.comparison ? 'Prova de acesso entre duas contas' : 'Mapeamento da navegação'} · {externalEngine}</span></p>}
+                        {target?.preflight?.length > 0 && <Preflight items={target.preflight} title={'Pré-voo de ' + target.name} />}
+                        {target?.focus && <p className="form-note"><Crosshair size={16} /><span><strong>Foco para a IA:</strong> {target.focus}</span></p>}
+                        {target?.preflight?.some(item => !item.ok) && <p className="form-note"><Info size={16} /><span>Itens pendentes não impedem a sessão, mas reduzem o que a Égide consegue provar. <Link href="/ambientes" className="text-link">Ajustar o ambiente <ArrowRight size={14} /></Link></span></p>}
                         <label className="consent"><input type="checkbox" required checked={form.data.authorized} onChange={e => form.setData('authorized', e.target.checked)} /><span><strong>Confirmo a autorização</strong><small>Tenho permissão para testar este ambiente dentro do escopo cadastrado.</small></span></label>
                     </div>}
                 </fieldset>

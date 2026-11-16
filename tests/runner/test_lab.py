@@ -1,12 +1,13 @@
 import http.client
 import importlib.util
 import json
+import re
 import sys
 import threading
 import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 RUNNER = Path(__file__).resolve().parents[2] / "runner"
 
@@ -27,33 +28,34 @@ class LabTest(unittest.TestCase):
         cls.server.shutdown()
         cls.server.server_close()
 
-    def get(self, path):
+    def setUp(self):
+        self.lab.sessions.update({"sessao-a": "a", "sessao-b": "b"})
+
+    def call(self, verb, path, actor=None, payload=None, form=None):
         connection = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=5)
+        body = urlencode(form) if form else payload if payload is None or isinstance(payload, str) else json.dumps(payload)
+        headers = {"Cookie": f"lab_session=sessao-{actor}" if actor else "", "Content-Type": "application/x-www-form-urlencoded" if form else "application/json"}
         try:
-            connection.request("GET", path)
+            connection.request(verb, path, body=None if body is None else body.encode(), headers=headers)
             response = connection.getresponse()
             return response.status, response.read().decode(), response.getheader("Location")
         finally:
             connection.close()
 
-    def post_json(self, path, payload):
-        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=5)
-        try:
-            body = json.dumps(payload)
-            connection.request("POST", path, body=body, headers={"Content-Type": "application/json", "Content-Length": str(len(body))})
-            response = connection.getresponse()
-            return response.status, response.read().decode()
-        finally:
-            connection.close()
+    def get(self, path):
+        return self.call("GET", path)
 
-    def method(self, verb, path):
-        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_address[1], timeout=5)
-        try:
-            connection.request(verb, path)
-            response = connection.getresponse()
-            return response.status, response.read().decode()
-        finally:
-            connection.close()
+    def post_json(self, path, payload):
+        return self.call("POST", path, payload=payload)[:2]
+
+    def notes(self, verb, variant, ident="", actor=None, payload=None):
+        status, body, _ = self.call(verb, f"/servicos/{variant}/notas" + (f"/{ident}" if ident else ""), actor, payload)
+        return status, json.loads(body)
+
+    def create_note(self, variant, actor, texto):
+        status, _, location = self.call("POST", f"/{variant}/notas", actor, form={"texto": texto})
+        self.assertEqual(status, 303)
+        return int(re.fullmatch(rf"/{variant}/notas/(\d+)", location).group(1))
 
     def test_vulnerable_report_leaks_a_framework_stack_trace_on_bad_input(self):
         status, body, _ = self.get("/servicos/vulneravel/relatorio?mes=" + quote("1'><svg"))
@@ -99,12 +101,12 @@ class LabTest(unittest.TestCase):
         self.assertEqual(second[0], 409)
 
     def test_vulnerable_accepts_anonymous_delete_write(self):
-        status, body = self.method("DELETE", "/servicos/vulneravel/reservas/ab12cd34")
+        status, body = self.call("DELETE", "/servicos/vulneravel/reservas/ab12cd34")[:2]
         self.assertEqual(status, 200)
         self.assertIn("removido", body)
 
     def test_fixed_rejects_anonymous_delete_write(self):
-        status, _ = self.method("DELETE", "/servicos/corrigido/reservas/ab12cd34")
+        status, _ = self.call("DELETE", "/servicos/corrigido/reservas/ab12cd34")[:2]
         self.assertEqual(status, 401)
 
     def test_vulnerable_preferences_pollutes_the_prototype_and_contaminates_a_fresh_response(self):
@@ -273,6 +275,74 @@ class LabTest(unittest.TestCase):
 
             self.assertEqual(status, 302, destination)
             self.assertEqual(location, expected, destination)
+
+    def test_panel_links_to_the_notes_page_with_the_creation_form(self):
+        for variant in ("vulneravel", "corrigido"):
+            self.assertIn(f'<a href="/{variant}/notas">Anotações</a>', self.call("GET", f"/{variant}/painel", "a")[1])
+            body = self.call("GET", f"/{variant}/notas", "a")[1]
+            for fragment in ("Nova anotação", f'action="/{variant}/notas"', 'name="texto"', ">Criar anotação</button>", f"/servicos/{variant}/avisos"):
+                self.assertIn(fragment, body)
+
+    def test_owner_creates_reads_and_edits_own_notes_with_sequential_ids(self):
+        for variant in ("vulneravel", "corrigido"):
+            first, second = self.create_note(variant, "a", "EGIDE-CA-0123456789AB"), self.create_note(variant, "a", "<b>nota</b>")
+            self.assertEqual(second, first + 1)
+            self.assertRegex(self.call("GET", f"/{variant}/notas/{first}", "a")[1], rf"(?s)EGIDE-CA-0123456789AB.*/servicos/{variant}/notas/{first}\b")
+            self.assertIn("&lt;b&gt;nota", self.call("GET", f"/{variant}/notas/{second}", "a")[1])
+            self.assertIn(f'href="/{variant}/notas/{first}"', self.call("GET", f"/{variant}/notas", "a")[1])
+            self.assertEqual([item["id"] for item in self.notes("GET", variant, actor="a")[1]["notas"]][-2:], [first, second])
+            self.assertEqual(self.call("POST", f"/{variant}/notas", "a", form={"texto": " "})[0], 422)
+            for verb, payload, expected in (
+                ("GET", None, (200, {"id": first, "texto": "EGIDE-CA-0123456789AB"})), ("PUT", {"texto": "nova"}, (200, {"id": first, "texto": "nova"})),
+                ("PATCH", {"texto": "outra"}, (200, {"id": first, "texto": "outra"})), ("PATCH", {}, (200, {"id": first, "texto": "outra"})),
+                ("PUT", {}, (422, {"erro": "Envie o campo texto"})), ("PATCH", "{x", (400, {"erro": "JSON inválido"})),
+                ("DELETE", None, (200, {"ok": True, "removida": first})), ("GET", None, (404, {"erro": "Anotação não encontrada"})),
+            ):
+                self.assertEqual(self.notes(verb, variant, first, "a", payload), expected, verb)
+
+    def test_vulnerable_api_lets_another_account_read_change_and_delete_a_note(self):
+        ident = self.create_note("vulneravel", "a", "EGIDE-CA-0123456789AB")
+        self.assertEqual(self.notes("GET", "vulneravel", ident, "b"), (200, {"id": ident, "texto": "EGIDE-CA-0123456789AB"}))
+        self.assertNotIn(ident, [item["id"] for item in self.notes("GET", "vulneravel", actor="b")[1]["notas"]])
+        self.assertEqual(self.notes("PUT", "vulneravel", ident, "b", {"texto": "EGIDE-CB-0123456789AB"})[0], 200)
+        self.assertEqual(self.notes("GET", "vulneravel", ident, "a")[1]["texto"], "EGIDE-CB-0123456789AB")
+        self.assertEqual(self.notes("PATCH", "vulneravel", ident, "b", {"texto": "por B"})[1]["texto"], "por B")
+        self.assertEqual(self.notes("DELETE", "vulneravel", ident, "b")[0], 200)
+        self.assertEqual(self.notes("GET", "vulneravel", ident, "a")[0], 404)
+
+    def test_fixed_api_and_both_note_pages_hide_another_accounts_note(self):
+        ident, other = self.create_note("corrigido", "a", "EGIDE-CA-0123456789AB"), self.create_note("vulneravel", "a", "EGIDE-CA-FFFFFFFFFFFF")
+        for verb, payload in (("GET", None), ("PUT", {"texto": "x"}), ("PATCH", {"texto": "y"}), ("DELETE", None)):
+            self.assertEqual(self.notes(verb, "corrigido", ident, "b", payload), (404, {"erro": "Anotação não encontrada"}), verb)
+        self.assertEqual(self.notes("GET", "corrigido", ident, "a"), (200, {"id": ident, "texto": "EGIDE-CA-0123456789AB"}))
+        self.assertNotIn("FFFFFFFFFFFF", self.call("GET", f"/servicos/corrigido/notas/{other}", "a")[1])
+        pages = [self.call("GET", f"/{variant}/notas/{owned}", "b") for variant, owned in (("vulneravel", other), ("corrigido", ident))]
+        self.assertEqual([(page[0], "EGIDE-CA" in page[1]) for page in pages], [(404, False)] * 2)
+
+    def test_notes_and_notices_require_a_session(self):
+        for variant in ("vulneravel", "corrigido"):
+            ident = self.create_note(variant, "a", "EGIDE-CA-0123456789AB")
+            for verb, path in (("GET", f"notas/{ident}"), ("PUT", f"notas/{ident}"), ("PATCH", f"notas/{ident}"), ("DELETE", f"notas/{ident}"), ("GET", "notas"), ("GET", "avisos")):
+                status, body, _ = self.call(verb, f"/servicos/{variant}/{path}", payload={"texto": "x"} if verb in ("PUT", "PATCH") else None)
+                self.assertEqual((status, "EGIDE-CA" in body), (401, False), verb + path)
+            self.assertEqual(self.call("POST", f"/{variant}/notas", form={"texto": "anonima"})[0], 401)
+            self.assertEqual(self.call("GET", f"/{variant}/notas/{ident}")[::2], (303, f"/{variant}/entrar"))
+            self.assertEqual(self.notes("GET", variant, ident, "a")[1]["texto"], "EGIDE-CA-0123456789AB")
+
+    def test_notices_are_the_same_shared_list_for_both_accounts(self):
+        for variant in ("vulneravel", "corrigido"):
+            first, second = self.call("GET", f"/servicos/{variant}/avisos", "a"), self.call("GET", f"/servicos/{variant}/avisos", "b")
+            self.assertEqual((first, first[0], bool(json.loads(first[1])["avisos"])), (second, 200, True))
+            self.assertNotRegex(first[1], r"EGIDE-|egide\.test|EMPRESA")
+            self.assertEqual(self.call("DELETE", f"/servicos/{variant}/avisos", "a")[0], 404)
+
+    def test_reset_clears_notes_and_restarts_the_sequence(self):
+        ident = self.create_note("vulneravel", "a", "EGIDE-CA-0123456789AB")
+        self.lab.reset()
+        self.setUp()
+        self.assertEqual(self.notes("GET", "vulneravel", ident, "a")[0], 404)
+        self.assertEqual(self.notes("GET", "vulneravel", actor="a")[1]["notas"], [])
+        self.assertEqual(self.create_note("vulneravel", "b", "nova"), 1)
 
 
 if __name__ == "__main__":

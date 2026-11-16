@@ -14,10 +14,14 @@ class Target extends Model
 
     protected $guarded = [];
 
-    protected $hidden = ['credentials'];
+    protected $hidden = ['credentials', 'surface'];
 
     protected function casts(): array
     {
-        return ['verified_at' => 'datetime', 'next_run_at' => 'datetime', 'rules' => 'array', 'denied' => 'array', 'credentials' => 'encrypted:array', 'write_test' => 'boolean'];
+        return [
+            'verified_at' => 'datetime', 'next_run_at' => 'datetime', 'rules' => 'array', 'denied' => 'array',
+            'credentials' => 'encrypted:array', 'write_test' => 'boolean', 'surface' => 'array', 'surface_meta' => 'array',
+            'approved_writes' => 'array', 'max_rps' => 'float',
+        ];
     }
 }

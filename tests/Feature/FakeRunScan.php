@@ -23,6 +23,10 @@ class FakeRunScan extends RunScan
 
     public array $gotos = [];
 
+    public ?array $halt = null;
+
+    public array $calls = [];
+
     private array $log = [];
 
     protected function hunter(Planner $planner): Hunter
@@ -33,6 +37,17 @@ class FakeRunScan extends RunScan
     protected function settle(): void {}
 
     protected function runner(string $path, array $data = []): array
+    {
+        $this->calls[] = [$path, $data];
+        $response = $this->respond($path, $data);
+        if ($this->halt !== null && in_array($path, ['/observe', '/probe'], true)) {
+            $response['halt'] = $this->halt;
+        }
+
+        return $this->checkHalt($path, $response);
+    }
+
+    private function respond(string $path, array $data): array
     {
         if ($path === '/observe') {
             $this->frames[] = (bool) ($data['frame'] ?? false);

@@ -34,14 +34,14 @@ class AdminController extends Controller
                 'sessions' => Scan::count(),
                 'active' => (clone $active)->count(),
                 'blocked' => (int) Scan::sum('blocked_count'),
-                'severity' => Finding::selectRaw('severity, count(*) as total')->groupBy('severity')->pluck('total', 'severity'),
+                'severity' => Finding::achados()->selectRaw('severity, count(*) as total')->groupBy('severity')->pluck('total', 'severity'),
             ],
             'active' => $this->withOwner((clone $active)->latest()->get()),
             'recent' => $this->withOwner(Scan::latest()->limit(15)->get()),
             'users' => User::withCount(['scans', 'targets'])->orderBy('id')->get()
                 ->map(fn (User $user) => [
                     ...$user->only(['id', 'name', 'email', 'is_admin', 'suspended_at', 'created_at', 'scans_count', 'targets_count']),
-                    'findings' => Finding::whereIn('scan_id', Scan::where('user_id', $user->id)->select('id'))->count(),
+                    'findings' => Finding::achados()->whereIn('scan_id', Scan::where('user_id', $user->id)->select('id'))->count(),
                 ]),
             'horizon' => true,
             'engine' => [

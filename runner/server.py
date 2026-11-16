@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import lab
+from session_extras import canary, read_halt, redact, safety_options, traffic
 
 RUNNER_TOKEN = os.environ["EGIDE_RUNNER_TOKEN"]
 if len(RUNNER_TOKEN) < 32:
@@ -181,6 +182,7 @@ def start(data):
             raise ValueError("Modo local indisponível para esta origem")
     elif any(host.endswith(LOCAL_SUFFIX) for host in hosts):
         raise ValueError("Origem local exige a porta do app")
+    options = safety_options(data, is_lab)
     folder = Path(tempfile.mkdtemp(dir=WORK))
     folder.chmod(0o755)
     event_path = folder / "events.ndjson"
@@ -201,7 +203,7 @@ def start(data):
     policy_path.write_text(json.dumps({
         "host": url.hostname, "hosts": hosts, "scheme": url.scheme, "port": url.port or 443, "lab": is_lab,
         "rules": data["rules"], "denied": data["denied"], "budget": int(data["budget"]),
-        "local_port": local_port, "write": write,
+        "local_port": local_port, "write": write, **options,
     }))
     SESSION = {
         "id": data["id"], "dir": folder, "url": data["url"], "urls": dict(bases), "bases": bases, "actor": "a",
@@ -262,10 +264,10 @@ def observation(with_frame=True):
             for line in source:
                 try:
                     event = json.loads(line)
-                    event["path"] = re.sub(r"/confirmar/[a-f0-9]{32}", "/confirmar/[token]", event["path"])
-                    lines.append(event)
                 except ValueError:
                     continue
+                if isinstance(event, dict):
+                    lines.append(redact(event))
             SESSION["offset"] = source.tell()
     frame = None
     if with_frame:
@@ -274,7 +276,7 @@ def observation(with_frame=True):
         image = run("import", "-window", windows[-1], "-resize", "960x600", "-quality", "78",
                     "jpeg:-", capture_output=True, timeout=6).stdout
         frame = base64.b64encode(image).decode()
-    return {"page": snapshot, "network": lines[-80:], "frame": frame, "actor": SESSION["actor"]}
+    return {"page": snapshot, "network": lines[-80:], "frame": frame, "actor": SESSION["actor"], "halt": read_halt(SESSION["dir"])}
 
 
 def act(data):
@@ -415,7 +417,8 @@ def probe(data):
         command["method"] = method
     if body is not None:
         command["body"] = body
-    return bridge_call(command)
+    result = bridge_call(command)
+    return {**result, "halt": read_halt(SESSION["dir"])} if isinstance(result, dict) else result
 
 
 def race(data):
@@ -551,6 +554,10 @@ class Handler(BaseHTTPRequestHandler):
                         result = write(data)
                     elif self.path == "/mail":
                         result = mailbox(data["email"])
+                    elif self.path == "/canary":
+                        result = canary(SESSION["dir"], data)
+                    elif self.path == "/traffic":
+                        result = traffic(SESSION, data)
                     elif self.path == "/stop":
                         close()
                         result = {"ok": True}
@@ -568,22 +575,23 @@ def launch(host, port, handler):
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
 
-run("iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "12001",
-    "-d", "127.0.0.1", "-p", "tcp", "--dport", "8899", "-j", "ACCEPT")
-run("iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "12001",
-    "-d", "127.0.0.2", "-p", "tcp", "--dport", "8792", "-j", "ACCEPT")
-run("iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "12001", "-j", "REJECT")
-run("ip6tables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "12001", "-j", "REJECT")
-if "lab.egide.test" not in Path("/etc/hosts").read_text():
-    Path("/etc/hosts").open("a").write("\n127.0.0.1 lab.egide.test\n")
-Path("/tmp/.X99-lock").unlink(missing_ok=True)
-Path("/tmp/.X11-unix/X99").unlink(missing_ok=True)
-xvfb = subprocess.Popen(["Xvfb", ":99", "-screen", "0", "1280x800x24", "-nolisten", "tcp", "-ac"], env=DISPLAY)
-time.sleep(.5)
-launch("127.0.0.1", 8788, lab.Lab)
-launch("127.0.0.2", 8792, Handler)
-try:
-    ThreadingHTTPServer(("0.0.0.0", 8791), Handler).serve_forever()
-finally:
-    close()
-    stop(xvfb)
+if __name__ == "__main__":
+    run("iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "12001",
+        "-d", "127.0.0.1", "-p", "tcp", "--dport", "8899", "-j", "ACCEPT")
+    run("iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "12001",
+        "-d", "127.0.0.2", "-p", "tcp", "--dport", "8792", "-j", "ACCEPT")
+    run("iptables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "12001", "-j", "REJECT")
+    run("ip6tables", "-A", "OUTPUT", "-m", "owner", "--uid-owner", "12001", "-j", "REJECT")
+    if "lab.egide.test" not in Path("/etc/hosts").read_text():
+        Path("/etc/hosts").open("a").write("\n127.0.0.1 lab.egide.test\n")
+    Path("/tmp/.X99-lock").unlink(missing_ok=True)
+    Path("/tmp/.X11-unix/X99").unlink(missing_ok=True)
+    xvfb = subprocess.Popen(["Xvfb", ":99", "-screen", "0", "1280x800x24", "-nolisten", "tcp", "-ac"], env=DISPLAY)
+    time.sleep(.5)
+    launch("127.0.0.1", 8788, lab.Lab)
+    launch("127.0.0.2", 8792, Handler)
+    try:
+        ThreadingHTTPServer(("0.0.0.0", 8791), Handler).serve_forever()
+    finally:
+        close()
+        stop(xvfb)

@@ -192,7 +192,7 @@ class Lab(BaseHTTPRequestHandler):
             self.reply(page(f"""
 <small>EMPRESA {actor.upper()}</small><h1>Painel financeiro</h1>
 <p>Consulte os registros e exportações da sua empresa de teste.</p>
-<nav><a class="button" href="/{variant}/faturas">Ver faturas</a><a href="/{variant}/ajuda">Ajuda do portal</a></nav>
+<nav><a class="button" href="/{variant}/faturas">Ver faturas</a><a href="/{variant}/notas">Anotações</a><a href="/{variant}/ajuda">Ajuda do portal</a></nav>
 """))
             return
         if screen == "ajuda":
@@ -217,7 +217,13 @@ document.getElementById("exportar").onclick = async () => {{
 </script>
 """))
 
+    def do_PUT(self):
+        if not lab_services.notes(self, "PUT", urlsplit(self.path).path):
+            self.reply(json.dumps({"error": "Rota indisponivel"}), 404, "application/json")
+
     def do_DELETE(self):
+        if lab_services.notes(self, "DELETE", urlsplit(self.path).path):
+            return
         reservas = re.fullmatch(r"/servicos/(vulneravel|corrigido)/reservas/([a-f0-9]{1,8})", urlsplit(self.path).path)
         if not reservas:
             self.reply(json.dumps({"error": "Rota indisponivel"}), 404, "application/json")
@@ -229,6 +235,8 @@ document.getElementById("exportar").onclick = async () => {{
         self.reply(json.dumps({"ok": True, "removido": booking}), kind="application/json")
 
     def do_PATCH(self):
+        if lab_services.notes(self, "PATCH", urlsplit(self.path).path):
+            return
         match = re.fullmatch(r"/(vulneravel|corrigido)/servicos-indisponivel", self.path)
         export = re.fullmatch(r"/servicos/(vulneravel|corrigido)/extratos/([a-f0-9]{8})", urlsplit(self.path).path)
         if not export:
@@ -254,7 +262,7 @@ document.getElementById("exportar").onclick = async () => {{
         self.reply(json.dumps({"fatura": invoice, "empresa": owner.upper(), "nota": invoices[owner]["nota"]}), kind="application/json")
 
     def do_POST(self):
-        if lab_services.post(self, urlsplit(self.path).path):
+        if lab_services.post(self, urlsplit(self.path).path, page):
             return
         match = re.fullmatch(r"/(vulneravel|corrigido)/(cadastro|entrar)", self.path)
         if not match:

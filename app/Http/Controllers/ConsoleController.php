@@ -27,7 +27,7 @@ class ConsoleController extends Controller
     {
         $owner = $request->user()->id;
         $scans = Scan::where('user_id', $owner);
-        $findings = Finding::whereIn('scan_id', (clone $scans)->select('id'));
+        $findings = Finding::achados()->whereIn('scan_id', (clone $scans)->select('id'));
 
         $spotlight = (clone $scans)->whereIn('status', ['queued', 'running'])->latest()->first()
             ?? (clone $scans)->where('status', 'completed')->latest('finished_at')->first();
@@ -43,7 +43,7 @@ class ConsoleController extends Controller
                 'frame_at' => $this->frameAt($spotlight->id),
                 'events' => $spotlight->events()->whereIn('type', ['browser', 'test', 'finding', 'verified', 'identity'])
                     ->where('title', '!=', 'Aguardando decisão da IA')->latest('id')->limit(5)->get(['id', 'type', 'title', 'detail', 'created_at']),
-                'severity' => $spotlight->findings()->get()->countBy('severity'),
+                'severity' => $spotlight->findings()->achados()->get()->countBy('severity'),
             ] : null,
             'stats' => [
                 'assets' => Target::where('user_id', $owner)->whereNotNull('verified_at')->count(),
@@ -56,6 +56,8 @@ class ConsoleController extends Controller
 
     public function assets(Request $request)
     {
+        $engine = $this->engine($this->workspace($request), true);
+
         return Inertia::render('Assets', [
             'targets' => Target::where('user_id', $request->user()->id)->latest()->get()->map(fn (Target $target) => [
                 ...$target->toArray(),
@@ -65,6 +67,7 @@ class ConsoleController extends Controller
                     'value' => $target->verification_token,
                 ], Scope::dnsDomains($target)),
                 'edit' => $this->editData($target),
+                'preflight' => $this->preflight($target, $engine),
             ]),
             'localTargets' => Scope::localEnabled(),
         ]);
@@ -120,6 +123,10 @@ class ConsoleController extends Controller
             'role_a' => 'nullable|in:admin,normal', 'role_b' => 'nullable|in:admin,normal',
             'environment_type' => 'nullable|in:test,production',
             'write_test' => 'sometimes|boolean',
+            'safety' => 'nullable|in:canario,livre',
+            'approved_writes' => 'nullable|string|max:4000',
+            'max_rps' => 'nullable|numeric|min:0.1|max:50',
+            'focus' => 'nullable|string|max:500',
         ]);
         $existingCredentials = (array) ($existing?->credentials ?? []);
         $origin = Scope::origin($data['origin']);
@@ -206,6 +213,8 @@ class ConsoleController extends Controller
             throw ValidationException::withMessages(['path_b' => 'Cada conta precisa de um registro com rota própria.']);
         }
 
+        $environment = $data['environment_type'] ?? 'production';
+        $approvedWrites = $this->approvedWrites($data['approved_writes'] ?? null);
         $writeTest = ! empty($data['write_test']);
         if ($writeTest && (empty($credentials['b']) || empty($credentials['a']['path']))) {
             throw ValidationException::withMessages(['path_a' => 'Para testar escrita, informe duas contas e a rota do registro da conta A.']);
@@ -215,9 +224,36 @@ class ConsoleController extends Controller
             'name' => $data['name'], 'origin' => $origin, 'api_origin' => $apiOrigin, 'entry_path' => $entryPath,
             'rules' => $rules, 'denied' => $denied, 'credentials' => $credentials ?: null,
             'local_port' => $localPort, 'write_test' => $writeTest,
-            'environment_type' => $data['environment_type'] ?? 'production',
+            'environment_type' => $environment,
             'record_hint' => isset($data['record_hint']) ? trim($data['record_hint']) : null,
+            'safety' => $environment === 'test' ? ($data['safety'] ?? 'canario') : 'canario',
+            'approved_writes' => $environment === 'test' ? $approvedWrites : null,
+            'max_rps' => isset($data['max_rps']) ? round((float) $data['max_rps'], 2) : null,
+            'focus' => filled($data['focus'] ?? null) ? trim($data['focus']) : null,
         ];
+    }
+
+    private function approvedWrites(?string $input): ?array
+    {
+        $lines = array_values(array_filter(array_map('trim', preg_split('/\R/', (string) $input))));
+        if (count($lines) > 50) {
+            throw ValidationException::withMessages(['approved_writes' => 'Aprove no máximo 50 escritas.']);
+        }
+        $writes = [];
+        foreach ($lines as $line) {
+            if (! preg_match('~^(POST|PUT|PATCH|DELETE)\s+(/\S*)$~iD', $line, $matches)) {
+                throw ValidationException::withMessages(['approved_writes' => 'Use uma escrita por linha, como POST /convites ou DELETE /reservas/*. Métodos aceitos: POST, PUT, PATCH e DELETE.']);
+            }
+            $prefix = str_ends_with($matches[2], '/*');
+            $path = $prefix ? substr($matches[2], 0, -2) : $matches[2];
+            if ($path === '' || $path === '/' || strlen($path) > 450 || ! Scope::path($path)) {
+                throw ValidationException::withMessages(['approved_writes' => 'A rota "'.$matches[2].'" precisa começar com / e apontar para um caminho, como /convites ou /reservas/*.']);
+            }
+            $method = strtoupper($matches[1]);
+            $writes[$method.' '.$path.($prefix ? '/*' : '')] = ['method' => $method, 'path' => $path, 'prefix' => $prefix];
+        }
+
+        return $writes === [] ? null : array_values($writes);
     }
 
     public function deleteTarget(Request $request, Target $target)
@@ -254,7 +290,73 @@ class ConsoleController extends Controller
             'write_test' => (bool) $target->write_test, 'rules' => $rules,
             'environment_type' => $target->environment_type ?? 'production',
             'denied' => implode("\n", (array) $target->denied), 'accounts' => $accounts,
+            'safety' => $target->safety ?? 'canario', 'focus' => $target->focus ?? '',
+            'max_rps' => $target->max_rps !== null ? (string) $target->max_rps : '',
+            'approved_writes' => collect((array) $target->approved_writes)
+                ->map(fn ($write) => $write['method'].' '.$write['path'].(! empty($write['prefix']) ? '/*' : ''))->implode("\n"),
         ];
+    }
+
+    private function preflight(Target $target, ?array $engine): array
+    {
+        $accounts = (array) $target->credentials;
+        $test = $target->environment_type === 'test';
+        $rules = (array) $target->rules;
+        $denied = count((array) $target->denied);
+        $open = collect($rules)->contains(fn ($rule) => ($rule['method'] ?? '') === '*' && ($rule['path'] ?? '') === '/' && ! empty($rule['prefix']));
+        $meta = (array) $target->surface_meta;
+        $routes = (int) ($meta['count'] ?? 0);
+        $hasB = ! empty($accounts['b']['email']);
+        $paths = ! empty($accounts['a']['path']) && (! $hasB || ! empty($accounts['b']['path']));
+        $account = fn (string $actor) => ($accounts[$actor]['email'] ?? '').' · conta '.(($accounts[$actor]['role'] ?? 'normal') === 'admin' ? 'admin' : 'comum');
+        $days = $target->verified_at ? (int) $target->verified_at->diffInDays(now()) : null;
+        $writes = count((array) $target->approved_writes);
+        $limits = array_filter([
+            $test && $writes ? $this->plural($writes, 'escrita aprovada', 'escritas aprovadas') : null,
+            $target->max_rps ? 'até '.str_replace('.', ',', (string) $target->max_rps).' requisições por segundo' : null,
+        ]);
+        $safety = match (true) {
+            ! $test => 'Só mapeamento: em produção, PUT, PATCH, DELETE e ações de efeito externo são sempre bloqueados no proxy.',
+            $target->safety === 'livre' => 'Livre: escritas destrutivas autorizadas neste ambiente de teste. Ações de efeito externo continuam bloqueadas no proxy.',
+            default => 'Canário: escritas destrutivas (PUT, PATCH e DELETE fora da escrita de teste configurada) e ações de efeito externo são bloqueadas no proxy; só passam a escrita de teste configurada e as escritas aprovadas.',
+        };
+        $formats = ['openapi' => 'OpenAPI 3', 'swagger' => 'Swagger 2', 'postman' => 'Postman', 'har' => 'HAR'];
+        $imported = isset($meta['imported_at']) ? ' em '.Carbon::parse($meta['imported_at'])->format('d/m/Y') : '';
+
+        return [
+            ['ok' => $days !== null, 'label' => 'Domínio verificado', 'detail' => match (true) {
+                $days === null => 'Publique o registro TXT ou o arquivo de verificação e clique em Verificar domínio.',
+                (bool) $target->local_port => 'Ambiente local na porta '.$target->local_port.', sem passar pela internet.',
+                default => ($days === 0 ? 'Verificado hoje.' : 'Verificado há '.$this->plural($days, 'dia', 'dias').'.').' A Égide confirma de novo ao iniciar a sessão.',
+            }],
+            ['ok' => true, 'label' => 'Tipo de ambiente', 'detail' => $test
+                ? 'Teste ou homologação: bateria completa de autorização, escrita e injeção dentro do escopo, até 2000 requisições.'
+                : 'Produção: só mapeamento, sem injeção, enumeração ativa nem testes de escrita, até 180 requisições.'],
+            ['ok' => true, 'label' => 'Modo de segurança', 'detail' => $safety.($limits ? ' '.ucfirst(implode(' · ', $limits)).'.' : '')],
+            ['ok' => ! empty($accounts['a']['email']), 'label' => 'Conta de teste A', 'detail' => ! empty($accounts['a']['email'])
+                ? $account('a') : 'Sem conta de teste, a Égide navega só como visitante, sem a área logada.'],
+            ['ok' => $hasB, 'label' => 'Conta de teste B', 'detail' => $hasB
+                ? $account('b') : 'Sem a segunda conta não há prova de acesso entre contas; a Égide só mapeia a navegação.'],
+            ['ok' => $paths, 'label' => 'Rota do registro', 'detail' => $paths
+                ? ($hasB ? 'Registro de cada conta informado: a prova entre contas parte de rotas conhecidas.' : 'Rota do registro da conta A informada.')
+                : 'Sem a rota do registro de cada conta, a Égide procura o registro navegando; se não encontrar, a prova entre contas fica inconclusiva.'],
+            ['ok' => $routes > 0, 'label' => 'Superfície da API', 'detail' => $routes > 0
+                ? $this->plural($routes, 'rota importada', 'rotas importadas').' ('.($formats[$meta['format'] ?? ''] ?? 'documento').')'.$imported.'.'
+                : 'Opcional: importe OpenAPI, Swagger, Postman ou HAR para cobrir rotas que a navegação não alcança.'],
+            ['ok' => $rules !== [] && ! ($open && ! $test), 'label' => 'Regras de escopo', 'detail' => match (true) {
+                $rules === [] => 'Nenhuma rota permitida: libere ao menos o caminho de entrada.',
+                $open => 'Tudo liberado (* /*), menos '.$this->plural($denied, 'bloqueio', 'bloqueios').'.'.($test ? ' Use só em ambiente de teste.' : ' Restrinja as rotas em produção.'),
+                default => $this->plural(count($rules), 'regra permitida', 'regras permitidas').' e '.$this->plural($denied, 'bloqueio', 'bloqueios').'; fora delas o proxy barra a chamada.',
+            }],
+            ['ok' => $engine !== null, 'label' => 'Motor de IA', 'detail' => $engine
+                ? config('egide.providers.'.$engine['provider'], $engine['provider']).' · '.$engine['model']
+                : 'O motor de IA da plataforma ainda não foi configurado pelo administrador; sem ele a sessão externa não começa.'],
+        ];
+    }
+
+    private function plural(int $count, string $one, string $many): string
+    {
+        return $count.' '.($count === 1 ? $one : $many);
     }
 
     public function verifyTarget(Request $request, Target $target)
@@ -275,11 +377,12 @@ class ConsoleController extends Controller
     {
         $filter = in_array($request->query('filtro'), ['ativas', 'achados'], true) ? $request->query('filtro') : 'todas';
         $base = fn () => Scan::where('user_id', $request->user()->id);
-        $query = $base()->withCount('findings')->latest();
+        $achados = fn ($findings) => $findings->achados();
+        $query = $base()->withCount(['findings' => $achados])->latest();
         if ($filter === 'ativas') {
             $query->whereIn('status', ['queued', 'running']);
         } elseif ($filter === 'achados') {
-            $query->has('findings');
+            $query->whereHas('findings', $achados);
         }
 
         return Inertia::render('Sessions', [
@@ -288,7 +391,7 @@ class ConsoleController extends Controller
             'counts' => [
                 'todas' => $base()->count(),
                 'ativas' => $base()->whereIn('status', ['queued', 'running'])->count(),
-                'achados' => $base()->has('findings')->count(),
+                'achados' => $base()->whereHas('findings', $achados)->count(),
             ],
         ]);
     }
@@ -305,7 +408,8 @@ class ConsoleController extends Controller
 
         return Inertia::render('NewSession', [
             'targets' => $targets->map(fn (Target $target) => [
-                ...$target->only(['id', 'name', 'origin']), 'comparison' => isset($target->credentials['b']),
+                ...$target->only(['id', 'name', 'origin', 'environment_type', 'safety', 'approved_writes', 'max_rps', 'focus', 'surface_meta']),
+                'comparison' => isset($target->credentials['b']), 'preflight' => $this->preflight($target, $externalEngine),
             ]),
             'externalEngine' => $externalEngine ? config('egide.providers.'.$externalEngine['provider']) : null,
             'labEngine' => $engine ? config('egide.providers.'.$engine['provider']) : null,
@@ -465,14 +569,16 @@ class ConsoleController extends Controller
         $scans = Scan::where('user_id', $request->user()->id)->select('id');
         $levels = ['critical', 'high', 'medium', 'low'];
         $severity = in_array($request->query('severidade'), $levels, true) ? $request->query('severidade') : 'todas';
-        $query = Finding::whereIn('scan_id', $scans)->latest();
+        $query = Finding::achados()->whereIn('scan_id', $scans)->latest();
         if ($severity !== 'todas') {
             $query->where('severity', $severity);
         }
-        $counts = Finding::whereIn('scan_id', $scans)->selectRaw('severity, count(*) as total')->groupBy('severity')->pluck('total', 'severity');
+        $counts = Finding::achados()->whereIn('scan_id', $scans)->selectRaw('severity, count(*) as total')->groupBy('severity')->pluck('total', 'severity');
 
         return Inertia::render('Findings', [
             'findings' => $query->paginate(20)->withQueryString(),
+            'observations' => Finding::observacoes()->whereIn('scan_id', $scans)->latest()->limit(30)->get(),
+            'observationCount' => Finding::observacoes()->whereIn('scan_id', $scans)->count(),
             'severity' => $severity,
             'counts' => ['todas' => (int) $counts->sum()] + collect($levels)->mapWithKeys(fn ($level) => [$level => (int) ($counts[$level] ?? 0)])->all(),
         ]);
@@ -534,9 +640,10 @@ class ConsoleController extends Controller
     private function state(Scan $scan, bool $full = false): array
     {
         $events = $scan->events()->latest('id')->when(! $full, fn ($query) => $query->limit(200))->get()->reverse()->values();
+        [$observations, $findings] = $scan->findings()->get()->partition(fn (Finding $finding) => $finding->track === 'observacao');
 
         return [
-            'scan' => $scan->toArray(), 'events' => $events, 'findings' => $scan->findings()->get(),
+            'scan' => $scan->toArray(), 'events' => $events, 'findings' => $findings->values(), 'observations' => $observations->values(),
             'frame' => Storage::exists('frames/'.$scan->id.'.jpg'),
             'frame_at' => $this->frameAt($scan->id),
         ];
