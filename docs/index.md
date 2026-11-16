@@ -20,6 +20,7 @@ Este índice é a entrada para desenvolvimento. O [README](../README.md) continu
 | Deploy e processos | [Produção](operations/production.md) |
 | Testes e evidências | [Testes](operations/testing.md) |
 | Como alterar um fluxo | [Guia de mudanças](operations/change-guide.md) |
+| Refatoração grande com agentes | [Superpowers](operations/superpowers.md) |
 
 ## Como ler estas páginas
 

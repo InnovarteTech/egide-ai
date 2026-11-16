@@ -12,6 +12,7 @@ Leia [o índice técnico](docs/index.md) antes de alterar um fluxo. O [README](R
 | Monitoramento ou alertas | [Sentinela](docs/domains/sentinel.md) |
 | API, CI, agenda ou webhook | [Integrações](docs/domains/integrations.md) |
 | Banco, deploy ou ambiente local | [Dados](docs/data-model.md) e [operação](docs/operations/local.md) |
+| Refatoração grande entre componentes | [Guia Superpowers](docs/operations/superpowers.md) e [arquitetura](docs/architecture.md) |
 
 ## Antes de editar
 

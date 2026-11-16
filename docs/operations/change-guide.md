@@ -2,6 +2,8 @@
 
 Use este roteiro depois de entender [a arquitetura](../architecture.md) e o domínio afetado. Ele indica caminhos de investigação, não substitui a leitura do fluxo completo.
 
+Se a mudança atravessar vários serviços ou alterar uma barreira de segurança, comece pelo [roteiro de refatoração grande com Superpowers](superpowers.md).
+
 ## Nova verificação de segurança
 
 Comece em [agente e oráculos](../domains/agent-and-oracles.md). Identifique origem do endpoint em [EndpointMap](../../app/Security/EndpointMap.php), escolha/payload em [Planner](../../app/Security/Planner.php) e [Payloads](../../app/Security/Payloads.php), envio em [RunScan](../../app/Jobs/RunScan.php) ou seus traits, e prova em [PayloadOracles](../../app/Security/PayloadOracles.php) / [ApiOracles](../../app/Security/ApiOracles.php). Acrescente cobertura e evidência, respeite orçamento/escopo, e teste vulnerável, corrigido e inconclusivo. Atualize a página do domínio.
