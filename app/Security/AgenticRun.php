@@ -44,7 +44,7 @@ final class AgenticRun
         $scored = [];
         foreach ($inventory as $entry) {
             $path = (string) ($entry['path'] ?? '');
-            if ($path === '' || preg_match('~\.(css|js|mjs|png|jpe?g|gif|svg|webp|woff2?|ttf|ico|map)$~i', $path)) {
+            if ($path === '' || ! empty($entry['template']) || preg_match('~\.(css|js|mjs|png|jpe?g|gif|svg|webp|woff2?|ttf|ico|map)$~i', $path)) {
                 continue;
             }
             $score = 0;

@@ -12,6 +12,8 @@ final class Scope
 
     public const RESERVED_PORTS = [22, 25, 53, 3306, 5432, 6379, 6387, 8791, 8792, 8899, 9200, 11211, 27017];
 
+    public const SAFETY_MODES = ['canario', 'livre', 'mapeamento'];
+
     public static function localEnabled(): bool
     {
         return app()->environment('local') && (bool) config('egide.local_targets');
@@ -185,12 +187,26 @@ final class Scope
             ];
         }
 
+        $focus = is_string($target->focus) ? mb_substr(trim($target->focus), 0, 500) : '';
+
         return [
             'url' => ($urls['a'] ?? $target->origin.$target->entry_path), 'lab' => false, 'api' => $target->api_origin ?: null,
             'urls' => $urls, 'rules' => $target->rules, 'denied' => $target->denied,
             'local_port' => $target->local_port ?: null, 'write' => $write, 'accounts' => $launchAccounts,
             'env_type' => $target->environment_type === 'test' ? 'test' : 'production',
+            'safety' => $target->environment_type !== 'test' ? 'mapeamento'
+                : (in_array($target->safety, self::SAFETY_MODES, true) ? $target->safety : 'canario'),
+            'approved_writes' => array_values(array_filter(self::decoded($target->approved_writes), 'is_array')),
+            'max_rps' => is_numeric($target->max_rps) && (float) $target->max_rps > 0 ? (float) $target->max_rps : null,
+            'focus' => $focus !== '' ? $focus : null,
         ];
+    }
+
+    public static function decoded(mixed $value): array
+    {
+        $value = is_string($value) ? json_decode($value, true) : $value;
+
+        return is_array($value) ? $value : [];
     }
 
     public static function verify(Target $target): bool

@@ -4,7 +4,7 @@ import { Activity, ArrowDownToLine, ArrowLeft, ArrowRight, ArrowUpRight, Check, 
 import { outcomes, captureAge, formatDate, formatTime, scanLabel, hostOf, plural, bySeverity } from '../format';
 import { Badge, Status, useTab, Tabs, TabPanel, Empty, Pagination } from '../ui';
 import { Layout, Heading } from '../layout';
-import { RuleColumns, FindingCard, ScanResult } from '../evidence';
+import { RuleColumns, FindingCard, Observations, ScanResult } from '../evidence';
 
 export function Sessions({ scans, filter = 'todas', counts = {} }) {
     const change = key => router.get('/sessoes', key === 'todas' ? {} : { filtro: key }, { preserveState: true, preserveScroll: true, replace: true });
@@ -42,13 +42,13 @@ export function Sessions({ scans, filter = 'todas', counts = {} }) {
 const eventIcons = { browser: Monitor, identity: Fingerprint, network: Globe2, blocked: LockKeyhole, finding: Crosshair, verified: Check, test: Activity, error: X, system: Radio };
 export function Session(initial) {
     const [state, setState] = useState(initial);
-    const { scan, events, findings, frame, frame_at: frameAt } = state;
+    const { scan, events, findings, observations = [], frame, frame_at: frameAt } = state;
     const active = ['queued', 'running'].includes(scan.status);
     const base = '/sessoes/' + scan.id;
     const outcome = outcomes[scan.result];
     const stop = useForm({});
     const [connectionError, setConnectionError] = useState(false);
-    const hasResult = !!outcome || findings.length > 0;
+    const hasResult = !!outcome || findings.length > 0 || observations.length > 0;
     const [tab, setTab] = useTab('aba', !active && hasResult ? 'resultado' : 'execucao', ['execucao', 'resultado', 'rede', 'escopo']);
 
     useEffect(() => {
@@ -118,7 +118,7 @@ export function Session(initial) {
                 })}{!activity.length && <li className="timeline-empty">As decisões e verificações aparecem aqui.</li>}</ol>
             </section>
         </TabPanel>}
-        {tab === 'resultado' && <TabPanel name="sessao" id="resultado">
+        {tab === 'resultado' && <TabPanel name="sessao" id="resultado" className="stack">
             <section className="panel">
                 <div className="panel-header"><h2>Resultado da avaliação</h2>{outcome && <Badge tone={outcome[1]}>{outcome[0]}</Badge>}</div>
                 {!hasResult && <Empty icon={Crosshair} title={active ? 'Sessão em andamento' : 'Sem resultado'}>{active ? 'O resultado aparece quando a prova terminar.' : 'A sessão terminou sem um veredito.'}</Empty>}
@@ -129,6 +129,7 @@ export function Session(initial) {
                 {scan.result === 'challenge' && <p className="result-text">A execução chegou a uma verificação humana no ambiente autorizado.</p>}
                 {scan.scope.retest_of && <div className="panel-foot start"><Link href={'/sessoes/' + scan.scope.retest_of} className="text-link">Ver a sessão original <ArrowRight size={16} /></Link></div>}
             </section>
+            <Observations observations={observations} />
         </TabPanel>}
         {tab === 'rede' && <TabPanel name="sessao" id="rede">
             <section className="panel">

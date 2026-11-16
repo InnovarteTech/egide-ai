@@ -1,13 +1,19 @@
+import asyncio
 import ipaddress
 import json
 import os
-import re
 import socket
+import sys
 import time
-from email.utils import parsedate_to_datetime
 from urllib.parse import unquote, urlsplit
 
 from mitmproxy import http
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+
+import guard
 
 with open(os.environ["EGIDE_POLICY"]) as source:
     scope = json.load(source)
@@ -20,8 +26,13 @@ events = os.environ["EGIDE_EVENTS"]
 hosts = set(scope.get("hosts") or [scope["host"]])
 local_port = scope.get("local_port")
 LOCAL_UPSTREAM = "host.docker.internal"
-actor_file = os.path.join(os.path.dirname(os.environ["EGIDE_POLICY"]), "actor")
+folder = os.path.dirname(os.environ["EGIDE_POLICY"])
+actor_file = os.path.join(folder, "actor")
 sessions = {}
+safety, approved_writes, session_tag, max_rps, test_markers = guard.settings(scope)
+canaries = guard.CanaryFile(os.path.join(folder, "canaries.json"))
+stop = guard.Halt(os.path.join(folder, "halt.json"))
+brakes = guard.Brakes(max_rps)
 
 
 def current_actor():
@@ -33,69 +44,51 @@ def current_actor():
         return None
 
 
-def record(request, status, allowed, reason="", issues=None, location=None):
-    event = {
-        "method": request.method, "host": request.pretty_host,
-        "path": urlsplit(request.path).path[:280], "status": status,
-        "allowed": allowed, "reason": reason, "issues": issues or [],
-    }
-    if location:
-        event["location"] = location[:300]
-    with open(events, "a") as output:
-        output.write(json.dumps(event) + "\n")
+def classify(method, path, host=None):
+    rule = write_match(method, host if host is not None else (write or {}).get("host"), path)
+    return guard.classify(method, path, rule, canaries() if method in guard.UPDATES else ())
 
 
-def expired(parts):
-    for part in parts:
-        if part.startswith("max-age="):
-            return part[8:].strip().lstrip("-").isdigit() and int(part[8:].strip()) <= 0
-        if part.startswith("expires="):
-            try:
-                return parsedate_to_datetime(part[8:].strip()).timestamp() < time.time()
-            except (TypeError, ValueError, IndexError):
-                return False
-    return False
+def gate(method, path, host=None):
+    action = classify(method, path, host)
+    return action, guard.refusal(safety, action, method, guard.approved(approved_writes, method, path))
 
 
-def inspect(flow):
-    headers = flow.response.headers
-    kind = headers.get("content-type", "").lower()
-    html = "text/html" in kind
-    found = []
-    scheme = flow.metadata.get("scheme", flow.request.scheme)
-    if scheme == "https" and not local_port and not headers.get("strict-transport-security"):
-        found.append("hsts")
-    policy = headers.get("content-security-policy", "").lower()
-    if html and not policy:
-        found.append("csp")
-    if html and not headers.get("x-frame-options") and "frame-ancestors" not in policy:
-        found.append("clickjacking")
-    if (html or "json" in kind or "javascript" in kind) and headers.get("x-content-type-options", "").lower() != "nosniff":
-        found.append("nosniff")
-    for name in ("server", "x-powered-by"):
-        value = headers.get(name, "")
-        if re.search(r"[A-Za-z][\w.-]*/\d", value) or (name == "x-powered-by" and value):
-            found.append("version:" + re.sub(r"[^\w ./()-]", "", value)[:80])
-    for cookie in headers.get_all("set-cookie"):
-        parts = [part.strip().lower() for part in cookie.split(";")]
-        name = re.sub(r"[^\w.-]", "", cookie.split("=", 1)[0])[:60]
-        if expired(parts):
-            continue
-        missing = [flag for flag, present in (
-            ("secure", scheme != "https" or "secure" in parts),
-            ("httponly", "httponly" in parts or name.lower() in ("xsrf-token", "csrftoken", "csrf_token", "_csrf")),
-            ("samesite", any(part.startswith("samesite=") for part in parts)),
-        ) if not present]
-        if name and missing:
-            found.append("cookie:" + name + ":" + ",".join(missing))
-    return found
+def actor_of(flow):
+    if "egide_actor" in flow.metadata:
+        return flow.metadata["egide_actor"]
+    return "anon" if guard.header(flow.request.headers, "x-egide-anon") == "1" else current_actor()
+
+
+def record(flow, status, allowed, reason="", issues=None, location=None, details=None):
+    event = {"method": "", "host": "", "path": "", "status": status, "allowed": allowed, "reason": reason, "issues": [],
+             "actor": None, "acao": "negado", "markers": [], "sent_markers": [], "ctype": "", "shape": "", "size": 0, "ms": 0}
+    try:
+        request = flow.request
+        path = urlsplit(request.path).path
+        action = flow.metadata.get("egide_action") or classify(request.method, unquote(path), request.pretty_host)
+        event.update({
+            "method": request.method, "host": request.pretty_host, "path": path[:280], "issues": issues or [],
+            "actor": actor_of(flow), "acao": action, "sent_markers": guard.sent_markers(request, test_markers),
+        })
+        event.update(details or {})
+        if location:
+            event["location"] = location[:300]
+    except Exception:
+        pass
+    try:
+        with open(events, "a") as output:
+            output.write(json.dumps(event) + "\n")
+    except (OSError, TypeError, ValueError):
+        pass
 
 
 def reject(flow, reason):
-    record(flow.request, 403, False, reason)
+    flow.metadata["egide_blocked"] = True
     flow.response = http.Response.make(403, "Fora do escopo autorizado pela Égide AI".encode(), {
         "Content-Type": "text/plain", "X-Egide-Blocked": "1",
     })
+    record(flow, 403, False, reason)
 
 
 def correct_host(host, port):
@@ -121,7 +114,9 @@ def write_match(method, host, path):
 
 
 def http_connect(flow):
-    if not correct_host(flow.request.host, flow.request.port):
+    if stop.active():
+        reject(flow, guard.HALTED)
+    elif not correct_host(flow.request.host, flow.request.port):
         reject(flow, "Destino fora da autorização")
 
 
@@ -130,12 +125,27 @@ def request(flow):
         check(flow)
     except Exception:
         reject(flow, "Formato de requisição vedado")
+    flow.metadata["egide_started"] = time.monotonic()
+    if flow.response is not None or safety == "lab":
+        return None
+    delay = brakes.pace((flow.request.pretty_host or "").lower())
+    return hold(flow, delay) if delay > 0 else None
+
+
+async def hold(flow, delay):
+    await asyncio.sleep(delay)
+    if stop.active():
+        reject(flow, guard.HALTED)
+    flow.metadata["egide_started"] = time.monotonic()
 
 
 def check(flow):
     global limit, preflights, writes
     req = flow.request
     flow.metadata["scheme"] = req.scheme
+    if stop.active():
+        reject(flow, guard.HALTED)
+        return
     if req.stream:
         reject(flow, "Requisição grande demais")
         return
@@ -160,6 +170,11 @@ def check(flow):
         return
     if any(decoded == path or decoded.startswith(path + "/") for path in scope["denied"]):
         reject(flow, "Rota bloqueada no escopo")
+        return
+    action, refusal = gate(req.method, decoded, req.pretty_host)
+    flow.metadata["egide_action"] = action
+    if refusal:
+        reject(flow, refusal)
         return
 
     preflight = req.method == "OPTIONS" and bool(req.headers.get("access-control-request-method"))
@@ -191,6 +206,8 @@ def check(flow):
     actor = current_actor()
     anon = req.headers.pop("x-egide-anon", None) == "1"
     probe = req.headers.pop("x-egide-probe", None) == "1"
+    flow.metadata["egide_actor"] = "anon" if anon else actor
+    flow.metadata["egide_probe"] = anon or probe
     if anon:
         req.headers.pop("authorization", None)
         req.headers.pop("cookie", None)
@@ -200,6 +217,8 @@ def check(flow):
             req.headers["authorization"] = stored
     elif not preflight and actor and not probe and req.headers.get("authorization"):
         sessions[(actor, req.host.lower())] = req.headers["authorization"]
+    if session_tag:
+        req.headers["X-Egide-Session"] = session_tag
     if local_port:
         original = req.host
         req.scheme = "http"
@@ -239,19 +258,19 @@ def server_connect(data):
         data.server.error = "Resolução pública inválida"
 
 
-def destination(location):
-    value = re.sub(r"[\t\r\n]", "", location.strip()).replace("\\", "/")
-    value = re.sub(r"^(?:https?:)?/{2,}", "https://", value, flags=re.I)
-    try:
-        parts = urlsplit(value)
-        host = parts.hostname
-    except ValueError:
-        return ""
-    return "https://" + host.rstrip(".") + "/" if host else parts.path[:280]
-
-
 def response(flow):
-    if not flow.response.headers.get("X-Egide-Blocked"):
-        status = flow.response.status_code
-        location = destination(flow.response.headers.get("location", "")) if 300 <= status < 400 else None
-        record(flow.request, status, True, issues=inspect(flow), location=location)
+    if flow.metadata.get("egide_blocked"):
+        return
+    status = flow.response.status_code
+    headers = flow.response.headers
+    location = guard.destination(headers.get("location", "")) if 300 <= status < 400 else None
+    started = flow.metadata.get("egide_started")
+    ms = int((time.monotonic() - started) * 1000) if started else 0
+    details = guard.describe(guard.content_of(flow.response), headers, ms, test_markers)
+    record(flow, status, True, issues=guard.inspect(flow, local_port), location=location, details=details)
+    if safety != "lab" and not stop.active():
+        path = unquote(urlsplit(flow.request.path).path)
+        reason = brakes.feed((flow.request.pretty_host or "").lower(), status, headers, ms, path,
+                             flow.request.method, bool(flow.metadata.get("egide_probe")))
+        if reason:
+            stop.trigger(reason)

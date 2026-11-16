@@ -40,13 +40,89 @@ STACK_TRACE = (
 
 POLLUTED = {}
 REDEEMED = set()
-_REDEEM_LOCK = threading.Lock()
+_STATE_LOCK = threading.Lock()
+NOTES = {"vulneravel": {}, "corrigido": {}}
+SEQUENCE = {"vulneravel": 0, "corrigido": 0}
+NOTICES = [{"id": 1, "titulo": "Manutenção programada", "mensagem": "O portal ficará indisponível no domingo, das 2h às 4h."}, {"id": 2, "titulo": "Novo modelo de exportação", "mensagem": "As faturas seguem o modelo padrão."}]
+NOTES_PAGE = """<small>EMPRESA {actor}</small><h1>Anotações</h1><ul>{items}</ul><h2>Nova anotação</h2>
+<form method="post" action="/{variant}/notas" aria-label="Nova anotação"><label>Texto da anotação<input name="texto" type="text" required maxlength="300" autocomplete="off"></label>
+<button type="submit">Criar anotação</button></form><h2>Avisos do sistema</h2><ul id="avisos" aria-live="polite"></ul><nav><a href="/{variant}/painel">Voltar ao painel</a></nav>
+<script>fetch("/servicos/{variant}/avisos").then(r => r.json()).then(d => (d.avisos || []).forEach(a => {{ const item = document.createElement("li"); item.textContent = a.titulo + ": " + a.mensagem; document.getElementById("avisos").append(item); }}));</script>"""
+NOTE_PAGE = """<small>EMPRESA {actor}</small><h1>Anotação #{ident}</h1><pre id="nota" aria-live="polite">{texto}</pre><nav><a href="/{variant}/notas">Voltar às anotações</a><a href="/{variant}/painel">Voltar ao painel</a></nav>
+<script>fetch("/servicos/{variant}/notas/{ident}").then(r => r.json()).then(n => {{ if (typeof n.texto === "string") document.getElementById("nota").textContent = n.texto; }});</script>"""
 
 
 def reset_state():
     POLLUTED.clear()
-    with _REDEEM_LOCK:
+    with _STATE_LOCK:
         REDEEMED.clear()
+        NOTES.update({variant: {} for variant in NOTES})
+        SEQUENCE.update(dict.fromkeys(SEQUENCE, 0))
+
+
+def notes(lab, verb, path, page=None):
+    screen = re.fullmatch(r"/(vulneravel|corrigido)/notas(?:/(\d{1,9}))?/?", path)
+    if screen and (verb == "GET" or (verb == "POST" and not screen.group(2))):
+        return note_screen(lab, verb, screen.group(1), screen.group(2), page)
+    api = re.fullmatch(r"/servicos/(vulneravel|corrigido)/(?:notas(?:/(\d{1,9}))?|(avisos))", path)
+    if not api or verb not in ("GET", "PUT", "PATCH", "DELETE") or (verb != "GET" and not api.group(2)):
+        return False
+    variant, ident, notices = api.groups()
+    try:
+        data = json.loads(lab.rfile.read(min(int(lab.headers.get("Content-Length") or 0), 4096)) if verb in ("PUT", "PATCH") else b"{}")
+    except ValueError:
+        data = None
+    with _STATE_LOCK:
+        payload, status = note_api(verb, NOTES[variant], None if ident is None else int(ident), variant == "corrigido", lab.actor(), notices, data)
+    lab.reply(json.dumps(payload), status, "application/json")
+    return True
+
+
+def note_api(verb, store, ident, owned_only, actor, notices, data):
+    note = store.get(ident) if ident is not None else None
+    if not actor:
+        return {"erro": "Autenticação necessária"}, 401
+    if notices:
+        return {"avisos": NOTICES}, 200
+    if ident is None:
+        return {"notas": [{"id": key, "texto": item["texto"]} for key, item in sorted(store.items()) if item["dono"] == actor]}, 200
+    if not note or (owned_only and note["dono"] != actor):
+        return {"erro": "Anotação não encontrada"}, 404
+    if verb == "DELETE":
+        store.pop(ident, None)
+        return {"ok": True, "removida": ident}, 200
+    if verb != "GET":
+        texto = data.get("texto", note["texto"] if verb == "PATCH" else None) if isinstance(data, dict) else None
+        if not isinstance(texto, str) or not texto.strip():
+            return ({"erro": "Envie o campo texto"}, 422) if isinstance(data, dict) else ({"erro": "JSON inválido"}, 400)
+        note["texto"] = texto.strip()[:300]
+    return {"id": ident, "texto": note["texto"]}, 200
+
+
+def note_screen(lab, verb, variant, ident, page):
+    actor = lab.actor()
+    texto = parse_qs(lab.rfile.read(min(int(lab.headers.get("Content-Length") or 0), 2048)).decode(errors="replace")).get("texto", [""])[0].strip()[:300] if verb == "POST" else ""
+    with _STATE_LOCK:
+        note = dict(NOTES[variant].get(int(ident), {})) if ident else {}
+        mine = [key for key, item in sorted(NOTES[variant].items()) if item["dono"] == actor]
+        if actor and verb == "POST" and texto:
+            SEQUENCE[variant] += 1
+            ident = SEQUENCE[variant]
+            NOTES[variant][ident] = {"dono": actor, "texto": texto}
+    if not actor and verb == "GET":
+        lab.redirect(f"/{variant}/entrar")
+    elif not actor or (verb == "POST" and not texto):
+        lab.reply(page("<h1>Entre novamente para criar anotações</h1>" if not actor else "<h1>Escreva o texto da anotação</h1>"), 401 if not actor else 422)
+    elif verb == "POST":
+        lab.redirect(f"/{variant}/notas/{ident}")
+    elif not ident:
+        items = "".join(f'<li><a href="/{variant}/notas/{key}">Anotação #{key}</a></li>' for key in mine)
+        lab.reply(page(NOTES_PAGE.format(actor=actor.upper(), variant=variant, items=items or "<li>Nenhuma anotação ainda.</li>")))
+    elif note.get("dono") != actor:
+        lab.reply(page("<h1>Anotação não encontrada</h1>"), 404)
+    else:
+        lab.reply(page(NOTE_PAGE.format(actor=actor.upper(), variant=variant, ident=int(ident), texto=html.escape(note["texto"]))))
+    return True
 
 
 def public_host(url):
@@ -64,6 +140,8 @@ def public_host(url):
 
 
 def get(lab, path, page):
+    if notes(lab, "GET", path, page):
+        return True
     busca = re.fullmatch(r"/servicos/(vulneravel|corrigido)/busca", path)
     if busca:
         variant = busca.group(1)
@@ -200,7 +278,9 @@ def get(lab, path, page):
     return False
 
 
-def post(lab, path):
+def post(lab, path, page=None):
+    if notes(lab, "POST", path, page):
+        return True
     graphql = re.fullmatch(r"/servicos/(vulneravel|corrigido)/graphql", urlsplit(lab.path).path)
     if graphql:
         try:
@@ -243,7 +323,7 @@ def post(lab, path):
             return True
         token = str(body.get("token", "")) if isinstance(body, dict) else ""
         if resgatar.group(1) == "corrigido":
-            with _REDEEM_LOCK:
+            with _STATE_LOCK:
                 if token in REDEEMED:
                     lab.reply(json.dumps({"erro": "Cupom já resgatado"}), 409, "application/json")
                     return True

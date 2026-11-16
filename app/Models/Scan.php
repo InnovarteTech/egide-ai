@@ -45,6 +45,11 @@ class Scan extends Model
         return $this->hasMany(Finding::class);
     }
 
+    public function hypotheses(): HasMany
+    {
+        return $this->hasMany(Hypothesis::class);
+    }
+
     public function event(string $type, string $title, ?string $detail = null, ?array $data = null): void
     {
         $this->events()->create(compact('type', 'title', 'detail', 'data'));

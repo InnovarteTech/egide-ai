@@ -150,12 +150,18 @@ class EgideTest extends TestCase
             'title' => 'Exposição', 'severity' => 'high', 'category' => 'BOLA',
             'evidence' => ['method' => 'GET', 'path' => '/x'], 'remediation' => 'Validar dono.',
         ]);
+        $scan->findings()->create([
+            'title' => 'Indício sem reprodução', 'severity' => 'critical', 'track' => 'observacao', 'category' => 'BOLA',
+            'evidence' => ['method' => 'GET', 'path' => '/y'], 'remediation' => 'Revisar.',
+        ]);
 
         $this->actingAs($other)->get('/sessoes/'.$scan->id.'/relatorio/imprimir')->assertNotFound();
 
         $this->actingAs($owner)->get('/sessoes/'.$scan->id.'/relatorio/imprimir')
             ->assertOk()->assertDontSee('secret-provider-key')
-            ->assertInertia(fn ($page) => $page->component('Report', false)->has('findings', 1)->where('engine', 'Roteiro do laboratório'));
+            ->assertInertia(fn ($page) => $page->component('Report', false)->has('findings', 1)->where('findings.0.cvss_score', 7.5)
+                ->has('observations', 1)->where('observations.0.title', 'Indício sem reprodução')->where('engine', 'Roteiro do laboratório'));
+        $this->getJson('/sessoes/'.$scan->id.'/relatorio')->assertOk()->assertJsonCount(1, 'findings')->assertJsonCount(1, 'observations');
     }
 
     public function test_sessions_and_findings_can_be_filtered(): void
@@ -170,17 +176,20 @@ class EgideTest extends TestCase
         $exposed = $make($owner, 'completed');
         $exposed->findings()->create(['title' => 'Exposição', 'severity' => 'high', 'category' => 'BOLA', 'evidence' => ['method' => 'GET', 'path' => '/x'], 'remediation' => 'Validar dono.']);
         $exposed->findings()->create(['title' => 'Cabeçalho', 'severity' => 'low', 'category' => 'Configuração', 'evidence' => ['method' => 'GET', 'path' => '/'], 'remediation' => 'Ajustar.']);
+        $exposed->findings()->create(['title' => 'Indício', 'severity' => 'high', 'track' => 'observacao', 'category' => 'BOLA', 'evidence' => ['method' => 'GET', 'path' => '/z'], 'remediation' => 'Revisar.']);
+        $make($owner, 'completed')->findings()->create(['title' => 'Só indício', 'severity' => 'critical', 'track' => 'observacao', 'category' => 'BOLA', 'evidence' => ['method' => 'GET', 'path' => '/w'], 'remediation' => 'Revisar.']);
         $make($other, 'running')->findings()->create(['title' => 'Alheio', 'severity' => 'high', 'category' => 'BOLA', 'evidence' => ['method' => 'GET', 'path' => '/y'], 'remediation' => 'x']);
 
         $this->actingAs($owner)->get('/sessoes?filtro=ativas')->assertInertia(fn ($page) => $page->component('Sessions', false)
-            ->where('filter', 'ativas')->has('scans.data', 1)->where('counts', ['todas' => 2, 'ativas' => 1, 'achados' => 1]));
+            ->where('filter', 'ativas')->has('scans.data', 1)->where('counts', ['todas' => 3, 'ativas' => 1, 'achados' => 1]));
         $this->actingAs($owner)->get('/sessoes?filtro=achados')->assertInertia(fn ($page) => $page->component('Sessions', false)
             ->has('scans.data', 1)->where('scans.data.0.findings_count', 2));
-        $this->actingAs($owner)->get('/sessoes?filtro=qualquer')->assertInertia(fn ($page) => $page->where('filter', 'todas')->has('scans.data', 2));
+        $this->actingAs($owner)->get('/sessoes?filtro=qualquer')->assertInertia(fn ($page) => $page->where('filter', 'todas')->has('scans.data', 3));
 
         $this->actingAs($owner)->get('/achados?severidade=high')->assertInertia(fn ($page) => $page->component('Findings', false)
             ->where('severity', 'high')->has('findings.data', 1)->where('findings.data.0.title', 'Exposição')
-            ->where('counts', ['todas' => 2, 'critical' => 0, 'high' => 1, 'medium' => 0, 'low' => 1]));
+            ->where('counts', ['todas' => 2, 'critical' => 0, 'high' => 1, 'medium' => 0, 'low' => 1])
+            ->has('observations', 2)->where('observationCount', 2));
     }
 
     public function test_unverified_target_cannot_be_queued(): void
@@ -258,8 +267,10 @@ class EgideTest extends TestCase
         $user = User::factory()->create();
         $done = Scan::create(['user_id' => $user->id, 'name' => 'Concluída', 'mode' => 'laboratory', 'status' => 'completed', 'provider' => 'lab', 'scope' => [], 'finished_at' => now()]);
         $done->findings()->create(['title' => 'X', 'severity' => 'high', 'category' => 'x', 'evidence' => [], 'remediation' => 'y']);
+        $done->findings()->create(['title' => 'Indício', 'severity' => 'critical', 'track' => 'observacao', 'category' => 'x', 'evidence' => [], 'remediation' => 'y']);
 
-        $this->actingAs($user)->get('/')->assertInertia(fn ($page) => $page->where('spotlight.id', $done->id)->where('spotlight.severity.high', 1));
+        $this->actingAs($user)->get('/')->assertInertia(fn ($page) => $page->where('spotlight.id', $done->id)->where('spotlight.severity.high', 1)
+            ->missing('spotlight.severity.critical')->where('stats.findings', 1));
 
         $running = Scan::create(['user_id' => $user->id, 'name' => 'Rodando', 'mode' => 'laboratory', 'status' => 'running', 'provider' => 'lab', 'scope' => []]);
         $running->event('browser', 'Ação selecionada pela IA', 'Ver faturas');

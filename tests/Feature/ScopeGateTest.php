@@ -187,6 +187,46 @@ class ScopeGateTest extends TestCase
         }
     }
 
+    private function unsaved(array $attributes = []): Target
+    {
+        return new Target([
+            'origin' => 'https://app.example.com', 'entry_path' => '/', 'environment_type' => 'test',
+            'rules' => [['method' => 'GET', 'path' => '/', 'prefix' => true]], 'denied' => [], 'credentials' => [],
+            ...$attributes,
+        ]);
+    }
+
+    public function test_launch_forces_mapping_outside_test_environments_and_honours_the_target_mode(): void
+    {
+        $this->assertSame('mapeamento', Scope::launch($this->unsaved(['environment_type' => 'production', 'safety' => 'livre']))['safety']);
+        $this->assertSame('mapeamento', Scope::launch($this->unsaved(['environment_type' => null, 'safety' => 'canario']))['safety']);
+        $this->assertSame('canario', Scope::launch($this->unsaved())['safety']);
+        $this->assertSame('livre', Scope::launch($this->unsaved(['safety' => 'livre']))['safety']);
+        $this->assertSame('mapeamento', Scope::launch($this->unsaved(['safety' => 'mapeamento']))['safety']);
+        $this->assertSame('canario', Scope::launch($this->unsaved(['safety' => 'lab']))['safety'], 'alvo real nunca roda sem as travas do proxy');
+    }
+
+    public function test_launch_carries_approved_writes_rate_limit_and_client_focus(): void
+    {
+        $writes = [['method' => 'POST', 'path' => '/convites', 'prefix' => false]];
+        $scope = Scope::launch($this->unsaved(['approved_writes' => $writes, 'max_rps' => '2.50', 'focus' => '  '.'Priorize o módulo de faturas.'.'  ']));
+
+        $this->assertSame($writes, $scope['approved_writes']);
+        $this->assertSame(2.5, $scope['max_rps']);
+        $this->assertSame('Priorize o módulo de faturas.', $scope['focus']);
+
+        $raw = $this->unsaved();
+        $raw->setRawAttributes([...$raw->getAttributes(), 'approved_writes' => json_encode($writes)]);
+        $this->assertSame($writes, Scope::launch($raw)['approved_writes']);
+
+        $bare = Scope::launch($this->unsaved(['focus' => str_repeat('a', 600)]));
+        $this->assertSame([], $bare['approved_writes']);
+        $this->assertNull($bare['max_rps']);
+        $this->assertSame(500, mb_strlen($bare['focus']));
+        $this->assertNull(Scope::launch($this->unsaved(['focus' => '   ', 'max_rps' => 0]))['focus']);
+        $this->assertNull(Scope::launch($this->unsaved(['max_rps' => 0]))['max_rps']);
+    }
+
     public function test_production_environment_skips_aggressive_checks(): void
     {
         $user = User::factory()->create();

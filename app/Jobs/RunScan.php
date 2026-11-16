@@ -10,6 +10,7 @@ use App\Models\Scan;
 use App\Models\Workspace;
 use App\Security\AgenticRun;
 use App\Security\AttackPoints;
+use App\Security\BudgetLedger;
 use App\Security\Checks;
 use App\Security\ClientScan;
 use App\Security\EndpointMap;
@@ -17,6 +18,7 @@ use App\Security\PayloadOracles;
 use App\Security\Payloads;
 use App\Security\Planner;
 use App\Security\Scope;
+use App\Security\SurfaceImport;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
@@ -63,7 +65,17 @@ class RunScan implements ShouldQueue
 
     private int $navigationCost = 10;
 
+    private ?BudgetLedger $ledger = null;
+
+    private array $phaseNoticed = [];
+
+    private ?string $halted = null;
+
     private const CONFIGURATION_RESERVE = 22;
+
+    private const HUNT_STEP_COST = 8;
+
+    private const CROSS_PROOF_COST = 60;
 
     public function __construct(public string $scanId)
     {
@@ -187,6 +199,7 @@ class RunScan implements ShouldQueue
         $budget = AgenticRun::budget($this->scan);
         $spent = ['endpoints' => 0, 'strategist_calls' => 0];
         $callback = $this->callbackToken();
+        $this->beginPhase('probers');
         $this->scan->update(['phase' => 'Varredura agêntica']);
         $this->scan->event('test', 'Varredura agêntica de vulnerabilidades', 'A IA planeja e injeta ataques adaptados por endpoint; cada achado é confirmado por oráculo determinístico.');
         $this->softCheck('DOM XSS (client-side)', fn () => $this->domXssSweep());
@@ -218,6 +231,9 @@ class RunScan implements ShouldQueue
             }
         }
         $this->authBattery();
+        if ($this->hunts()) {
+            $this->beginPhase('caca');
+        }
         $this->softCheck('Caça agêntica', fn () => $this->hunt($this->hunter($planner), $callback));
     }
 
@@ -271,7 +287,7 @@ class RunScan implements ShouldQueue
     {
         $inTime = $this->startedAt <= 0 || microtime(true) - $this->startedAt < $this->timeout - 180;
         if ($inTime && (int) $this->scan->budget - $this->allowed - $cost >= self::CONFIGURATION_RESERVE) {
-            return true;
+            return $this->phaseAllows($cost);
         }
         if (! $this->reserveNoticed) {
             $this->reserveNoticed = true;
@@ -280,6 +296,52 @@ class RunScan implements ShouldQueue
         }
 
         return false;
+    }
+
+    private function phaseAllows(int $cost): bool
+    {
+        $phase = $this->ledger?->current();
+        if ($phase === null || $this->ledger->allows($cost)) {
+            return true;
+        }
+        if (! isset($this->phaseNoticed[$phase])) {
+            $this->phaseNoticed[$phase] = true;
+            $this->scan->event('test', 'Orçamento da fase esgotado',
+                'As verificações restantes da fase de '.BudgetLedger::LABELS[$phase].' foram puladas para preservar o mínimo das fases seguintes.');
+        }
+
+        return false;
+    }
+
+    private function beginPhase(string $phase): void
+    {
+        $this->ledger?->begin($phase);
+    }
+
+    private function openLedger(): BudgetLedger
+    {
+        $budget = (int) $this->scan->budget;
+        $base = max(1, $budget - self::CONFIGURATION_RESERVE);
+        $hunts = $this->hunts();
+        $crosses = ! empty($this->scan->scope['lab']) || ! empty($this->scan->credentials['b']);
+        $shares = [
+            'observacao' => 0.15,
+            'prova_cruzada' => $crosses ? min(0.15, self::CROSS_PROOF_COST / $base) : 0,
+            'caca' => $hunts ? min(0.40, $this->huntLimit() * self::HUNT_STEP_COST / $base) : 0,
+        ];
+        $ledger = new BudgetLedger($budget, self::CONFIGURATION_RESERVE, [...$shares, 'probers' => max(0, 1 - array_sum($shares))], BudgetLedger::GUARANTEED);
+        foreach (['caca' => $hunts, 'prova_cruzada' => $crosses] as $phase => $runs) {
+            if (! $runs) {
+                $ledger->close($phase);
+            }
+        }
+
+        return $ledger;
+    }
+
+    private function hunts(): bool
+    {
+        return $this->aggressiveAllowed() && $this->scan->provider !== 'lab' && $this->huntLimit() > 0;
     }
 
     private function cover(string $check, string $route, string $verdict): void
@@ -563,7 +625,7 @@ class RunScan implements ShouldQueue
         try {
             $fn();
         } catch (Throwable $error) {
-            if ($this->scan->fresh()?->stop_requested_at) {
+            if ($this->halted !== null || $this->scan->fresh()?->stop_requested_at) {
                 throw $error;
             }
             $this->scan->event('test', 'Verificação não concluída', $check.' não pôde ser executada nesta sessão.');
@@ -812,8 +874,9 @@ class RunScan implements ShouldQueue
             if (! $this->scan->scope['lab'] && (! $this->scan->target || ! Scope::verify($this->scan->target))) {
                 throw new RuntimeException('A autorização do domínio não pôde ser confirmada ao iniciar a sessão.');
             }
-            $this->runner('/start', [...$this->scan->scope, 'budget' => $this->scan->budget]);
+            $this->runner('/start', [...$this->scan->scope, ...$this->safety(), 'budget' => $this->scan->budget]);
             $started = true;
+            $this->ledger = $this->openLedger();
             $this->scan->event('browser', 'Firefox iniciado', 'Perfil isolado e regras de tráfego carregados.');
             $result = $this->scan->scope['lab'] ? $this->laboratory($planner) : $this->external($planner);
             if ($result !== 'challenge') {
@@ -822,6 +885,7 @@ class RunScan implements ShouldQueue
             $this->checkStop();
             $this->executiveSummary($planner, $result);
             $this->saveCoverage();
+            $this->closeBooks($planner);
             $this->scan->update(['status' => 'completed', 'phase' => 'Relatório', 'result' => $result, 'finished_at' => now()]);
             $this->scan->event('system', 'Sessão concluída', 'Relatório e evidências disponíveis.');
             try {
@@ -830,6 +894,7 @@ class RunScan implements ShouldQueue
                 report($error);
             }
         } catch (Throwable $error) {
+            $this->closeBooks($planner);
             $cancelled = $this->scan->fresh()?->stop_requested_at !== null;
             $message = get_class($error) === RuntimeException::class
                 ? $error->getMessage()
@@ -875,6 +940,7 @@ class RunScan implements ShouldQueue
 
     private function laboratory(Planner $planner): string
     {
+        $this->beginPhase('observacao');
         $this->scan->update(['phase' => 'Identidades de teste']);
         $page = $this->observe()['page'];
         $ownedA = $this->enrollAndExplore('a', $page, $planner);
@@ -882,6 +948,7 @@ class RunScan implements ShouldQueue
         $ownedB = $this->enrollAndExplore('b', $this->observe()['page'], $planner);
 
         $this->checkStop();
+        $this->beginPhase('prova_cruzada');
         $this->scan->update(['phase' => 'Validação de acesso']);
         if ($ownedA['marker'] === $ownedB['marker'] || $ownedA['path'] === $ownedB['path']) {
             throw new RuntimeException('A prova exige dois registros fictícios com marcadores distintos.');
@@ -952,6 +1019,7 @@ class RunScan implements ShouldQueue
     private function labBattery(Planner $planner, string $variant, string $actor, string $owner, array $ownRecord, array $otherRecord): void
     {
         $adminRoute = "/{$variant}/admin/relatorio";
+        $this->beginPhase('probers');
         $this->scan->update(['phase' => 'Autorização por função (BFLA)']);
         $this->runner('/action', ['kind' => 'switch', 'actor' => 'a']);
         $this->observe();
@@ -1124,6 +1192,8 @@ class RunScan implements ShouldQueue
     private function external(Planner $planner): string
     {
         $accounts = $this->scan->credentials;
+        $this->importSurface();
+        $this->beginPhase('observacao');
         // Scan profundo (mapeamento + conta A pelo navegador + bateria de injeção + caça criativa)
         // roda SEMPRE, inclusive com 2 contas — não depende da prova cruzada.
         $result = $this->mapExternal($planner);
@@ -1133,9 +1203,11 @@ class RunScan implements ShouldQueue
         if (! $this->aggressiveAllowed()) {
             return $result;
         }
+        $this->beginPhase('probers');
         $this->writeMatrixBattery();
         $this->agenticBattery($planner);
         $cross = ! empty($accounts['b']) ? $this->crossAccountProof($planner, $accounts) : null;
+        $this->beginPhase('probers');
         $this->softCheck('Acesso sem autenticação', fn () => $this->unauthTest($this->sessionGetRoutes()));
         if (in_array($cross, ['exposure', 'protected'], true)) {
             return $cross;
@@ -1153,10 +1225,10 @@ class RunScan implements ShouldQueue
 
     private function crossAccountProof(Planner $planner, array $accounts): ?string
     {
+        $this->beginPhase('prova_cruzada');
         $this->scan->update(['phase' => 'Validação de autorização entre contas']);
         $retest = $this->scan->scope['retest_of'] ?? null;
-        $previous = $retest ? Scan::where('user_id', $this->scan->user_id)->where('target_id', $this->scan->target_id)
-            ->where('result', 'exposure')->find($retest)?->findings()->first()?->evidence : null;
+        $previous = $retest ? $this->retestProof($retest) : null;
         if ($retest && (empty($previous['path']) || empty($previous['own_path']))) {
             return $this->crossInconclusive('A prova original do reteste não está disponível.');
         }
@@ -1222,6 +1294,13 @@ class RunScan implements ShouldQueue
         }
 
         return $result ?? $this->crossInconclusive('A resposta cruzada não permitiu concluir se o registro ficou exposto.');
+    }
+
+    private function retestProof(string $retest): ?array
+    {
+        return Scan::where('user_id', $this->scan->user_id)->where('target_id', $this->scan->target_id)
+            ->where('result', 'exposure')->find($retest)?->findings()->achados()->orderBy('id')->get()
+            ->first(fn ($finding) => ! empty($finding->evidence['path']) && ! empty($finding->evidence['own_path']))?->evidence;
     }
 
     private function crossInconclusive(string $detail): ?string
@@ -1540,6 +1619,7 @@ class RunScan implements ShouldQueue
     private function configurationSweep(): void
     {
         $this->checkStop();
+        $this->ledger?->pause();
         $this->scan->update(['phase' => 'Configuração e exposição']);
         $this->scan->event('test', 'Verificando configuração e arquivos sensíveis', 'Cabeçalhos e cookies observados, mais arquivos comuns dentro do escopo autorizado.');
         $probes = 0;
@@ -1598,8 +1678,8 @@ class RunScan implements ShouldQueue
                 ->latest('finished_at')->first();
             if ($previous) {
                 $key = fn ($finding) => $finding->title.(empty($finding->evidence['kind']) ? '|'.($finding->evidence['path'] ?? '') : '');
-                $before = $previous->findings()->get()->map($key)->all();
-                $current = $this->scan->findings()->get();
+                $before = $previous->findings()->achados()->get()->map($key)->all();
+                $current = $this->scan->findings()->achados()->get();
                 $new = $current->filter(fn ($finding) => ! in_array($key($finding), $before, true))
                     ->pluck('title')->unique()->values()->all();
                 if ($new) {
@@ -1627,7 +1707,7 @@ class RunScan implements ShouldQueue
                 'endpoints_observed' => count($this->endpoints),
                 'checks' => ['isolamento entre contas', 'arquivos sensíveis expostos', 'cabeçalhos e cookies de segurança'],
             ],
-            'findings' => $this->scan->findings()->get()->map(fn ($finding) => [
+            'findings' => $this->scan->findings()->achados()->get()->map(fn ($finding) => [
                 'title' => $finding->title, 'severity' => $finding->severity, 'category' => $finding->category,
                 'reference' => $finding->evidence['reference'] ?? null,
                 'evidence' => $this->redact((string) ($finding->evidence['detail'] ?? '')),
@@ -1637,12 +1717,12 @@ class RunScan implements ShouldQueue
         try {
             $summary = $planner->summarize($this->scan, $facts);
             $order = ['none' => 0, 'low' => 1, 'medium' => 2, 'high' => 3, 'critical' => 4];
-            $floor = $this->scan->findings()->pluck('severity')->reduce(
+            $floor = $this->scan->findings()->achados()->pluck('severity')->reduce(
                 fn ($carry, $severity) => ($order[$severity] ?? 0) > $order[$carry] ? $severity : $carry, 'none');
             if ($order[$floor] > $order[$summary['risk']]) {
                 $summary['risk'] = $floor;
             }
-            $this->scan->update(['summary' => $summary]);
+            $this->scan->update(['summary' => [...(array) $this->scan->summary, ...$summary]]);
             $this->scan->event('system', 'Resumo executivo gerado', 'Texto escrito pela IA a partir das evidências desta sessão.');
         } catch (Throwable $error) {
             $this->scan->event('system', 'Resumo executivo indisponível', $error instanceof RuntimeException ? $error->getMessage() : 'A IA não respondeu a tempo.');
@@ -1664,6 +1744,7 @@ class RunScan implements ShouldQueue
         }
 
         $front = parse_url($this->scan->scope['url'], PHP_URL_HOST);
+        $before = $this->allowed;
         foreach ($data['network'] as $event) {
             if (($event['host'] !== $front && ! $event['allowed']) || $event['method'] === 'OPTIONS') {
                 continue;
@@ -1695,10 +1776,16 @@ class RunScan implements ShouldQueue
                 ['status' => $event['status'], 'allowed' => $event['allowed'], 'actor' => strtoupper($data['actor'])],
             );
         }
+        if ($this->allowed > $before && $this->ledger?->current() !== null) {
+            $this->ledger->spend($this->allowed - $before);
+        }
         $this->scan->update([
             'request_count' => $this->allowed, 'blocked_count' => $this->blocked,
             'endpoint_count' => count($this->endpoints),
         ]);
+        if ($this->halted !== null) {
+            throw $this->haltError();
+        }
 
         return $data;
     }
@@ -1750,6 +1837,9 @@ class RunScan implements ShouldQueue
 
     private function checkStop(): void
     {
+        if ($this->halted !== null) {
+            throw $this->haltError();
+        }
         if (Scan::whereKey($this->scanId)->whereNotNull('stop_requested_at')->exists()) {
             throw new RuntimeException('Sessão encerrada pelo responsável.');
         }
@@ -1757,6 +1847,9 @@ class RunScan implements ShouldQueue
 
     protected function runner(string $path, array $data = []): array
     {
+        if ($this->halted !== null && $path !== '/stop') {
+            throw $this->haltError();
+        }
         $response = Http::connectTimeout(4)->timeout(70)->withoutRedirecting()
             ->withToken(config('egide.runner_token') ?: 'unconfigured')
             ->post(rtrim($this->runnerUrl ?? config('egide.runner_url'), '/').$path, ['id' => $this->scanId, ...$data]);
@@ -1764,6 +1857,102 @@ class RunScan implements ShouldQueue
             throw new RuntimeException($response->json('error') ?: 'O executor Firefox não respondeu à solicitação.');
         }
 
-        return $response->json();
+        return $this->checkHalt($path, $response->json());
+    }
+
+    protected function checkHalt(string $path, array $response): array
+    {
+        $halt = in_array($path, ['/start', '/stop'], true) ? null : ($response['halt'] ?? null);
+        if (! empty($halt) && $this->halted === null) {
+            $reason = is_array($halt) && is_string($halt['reason'] ?? null) ? Str::limit(trim($halt['reason']), 200, '') : '';
+            $this->halted = $reason !== '' ? $reason : 'motivo não informado';
+            $this->scan->event('error', 'Parada automática do proxy',
+                'O proxy pausou a sessão por sinal de dano no alvo: '.$this->halted.'. Nenhuma requisição nova sai até uma nova sessão.',
+                ['reason' => $this->halted, 'at' => is_array($halt) && is_numeric($halt['at'] ?? null) ? (int) $halt['at'] : null]);
+        }
+        if ($this->halted !== null && ! in_array($path, ['/observe', '/stop'], true)) {
+            throw $this->haltError();
+        }
+
+        return $response;
+    }
+
+    private function haltError(): RuntimeException
+    {
+        return new RuntimeException('Sessão pausada pelo proxy: '.$this->halted);
+    }
+
+    private function safety(): array
+    {
+        $scope = $this->scan->scope;
+        $mode = in_array($scope['safety'] ?? null, Scope::SAFETY_MODES, true) ? $scope['safety'] : null;
+
+        return array_filter([
+            'safety' => ! empty($scope['lab']) ? 'lab' : (($scope['env_type'] ?? null) === 'test' ? $mode : 'mapeamento'),
+            'session_tag' => 'egide-'.substr(str_replace('-', '', $this->scanId), 0, 12),
+        ]);
+    }
+
+    private function importSurface(): void
+    {
+        $target = $this->scan->target;
+        $surface = Scope::decoded($target?->surface);
+        if ($surface === []) {
+            return;
+        }
+        $format = Scope::decoded($target->surface_meta)['format'] ?? null;
+        $known = count($this->inventory);
+        $this->inventory = SurfaceImport::merge($this->inventory, $surface);
+        $label = match ($format) {
+            'openapi' => 'OpenAPI', 'swagger' => 'Swagger', 'postman' => 'Postman', 'har' => 'HAR', default => 'importado',
+        };
+        $count = count($surface);
+        $this->scan->event('system', 'Superfície importada',
+            ($count === 1 ? '1 rota do arquivo '.$label.' entrou' : $count.' rotas do arquivo '.$label.' entraram').' no inventário desta sessão.',
+            ['count' => $count, 'format' => is_string($format) ? $format : null, 'novas' => count($this->inventory) - $known]);
+    }
+
+    private function surfaceSummary(): array
+    {
+        $origins = [];
+        foreach ($this->inventory as $entry) {
+            $origin = (string) ($entry['source'] ?? $entry['seen_in'] ?? 'xhr');
+            $origins[$origin] = ($origins[$origin] ?? 0) + 1;
+        }
+        ksort($origins);
+        $tested = array_map(fn ($route) => preg_replace('~[?#].*$~s', '', $route), array_filter(
+            array_column($this->coverage, 'route'), fn ($route) => is_string($route) && preg_match('~^(/|https://)~', $route)));
+
+        return ['vistas' => count($this->inventory), 'testadas' => count(array_unique($tested)), 'por_origem' => $origins];
+    }
+
+    private function closeBooks(Planner $planner): void
+    {
+        [$ledger, $this->ledger] = [$this->ledger, null];
+        if ($ledger === null) {
+            return;
+        }
+        try {
+            $phases = $ledger->summary();
+            $durations = $ledger->durations();
+            $tokens = $planner->tokens($this->scan);
+            $outside = max(0, $this->allowed - $phases['total']['spent']);
+            $parts = [];
+            foreach (BudgetLedger::LABELS as $phase => $label) {
+                if ($phases[$phase]['spent'] > 0 || $durations[$phase] > 0) {
+                    $parts[] = $label.': '.$phases[$phase]['spent'].' req. em '.round($durations[$phase]).' s';
+                }
+            }
+            $this->scan->event('system', 'Orçamento por fase',
+                ($parts ? 'Requisições por fase: '.implode('; ', $parts).'.' : 'Nenhuma fase consumiu requisições.')
+                .($outside ? " Configuração e fora de fase: {$outside} req." : '')
+                .(array_sum($tokens) ? " Tokens da IA: {$tokens['input']} de entrada e {$tokens['output']} de saída." : ''),
+                ['fases' => $phases, 'duracao_s' => $durations, 'fora_de_fase' => $outside, 'tokens' => array_sum($tokens) ? $tokens : null]);
+            if (empty($this->scan->scope['lab'])) {
+                $this->scan->update(['summary' => [...(array) $this->scan->summary, 'superficie' => $this->surfaceSummary()]]);
+            }
+        } catch (Throwable $error) {
+            report($error);
+        }
     }
 }

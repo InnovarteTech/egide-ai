@@ -46,4 +46,17 @@ class EvidenceTest extends TestCase
 
         $this->actingAs($owner)->get('/achados/'.$this->finding($owner)->id.'/imagem')->assertNotFound();
     }
+
+    public function test_session_feed_keeps_observations_apart_and_carries_the_cvss(): void
+    {
+        $owner = User::factory()->create();
+        $finding = $this->finding($owner);
+        Finding::create(['scan_id' => $finding->scan_id, 'title' => 'Indício de XSS', 'severity' => 'medium', 'track' => 'observacao',
+            'category' => 'InjectionCheck · XSS refletido', 'evidence' => ['path' => '/busca'], 'remediation' => 'revisar']);
+
+        $this->actingAs($owner)->getJson('/sessoes/'.$finding->scan_id.'/eventos')->assertOk()
+            ->assertJsonCount(1, 'findings')->assertJsonPath('findings.0.title', 'XSS')
+            ->assertJsonPath('findings.0.cvss_score', 7.5)->assertJsonPath('findings.0.cvss_vector', 'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N')
+            ->assertJsonCount(1, 'observations')->assertJsonPath('observations.0.track', 'observacao');
+    }
 }

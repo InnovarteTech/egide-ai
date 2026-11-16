@@ -6,6 +6,7 @@ use App\Http\Controllers\ConsoleController;
 use App\Http\Controllers\EvidenceController;
 use App\Http\Controllers\IntegrationController;
 use App\Http\Controllers\SentinelController;
+use App\Http\Controllers\SurfaceController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware('guest')->group(function (): void {
@@ -35,6 +36,8 @@ Route::middleware(['auth', 'active'])->group(function (): void {
     Route::put('/ambientes/{target}', [ConsoleController::class, 'updateTarget'])->middleware('throttle:8,1')->middleware('demo.readonly');
     Route::delete('/ambientes/{target}', [ConsoleController::class, 'deleteTarget'])->middleware('throttle:8,1')->middleware('demo.readonly');
     Route::post('/ambientes/{target}/verificar', [ConsoleController::class, 'verifyTarget'])->middleware('throttle:8,1')->middleware('demo.readonly');
+    Route::post('/ambientes/{target}/superficie', [SurfaceController::class, 'store'])->middleware('throttle:8,1')->middleware('demo.readonly');
+    Route::delete('/ambientes/{target}/superficie', [SurfaceController::class, 'destroy'])->middleware('throttle:8,1')->middleware('demo.readonly');
     Route::get('/sessoes', [ConsoleController::class, 'sessions']);
     Route::get('/sessoes/nova', [ConsoleController::class, 'sessionForm']);
     Route::post('/sessoes', [ConsoleController::class, 'createScan'])->middleware('throttle:8,1');
