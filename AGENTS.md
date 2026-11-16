@@ -8,6 +8,7 @@ Leia [o índice técnico](docs/index.md) antes de alterar um fluxo. O [README](R
 | --- | --- |
 | Sessão, relatório, achado ou reteste | [Sessões](docs/domains/scans.md) |
 | Alvo autorizado, proxy ou runner | [Escopo e executor](docs/domains/scope-and-runner.md) |
+| Superfície importada ou regras de segurança do ambiente | [Escopo e executor](docs/domains/scope-and-runner.md) e [Agente e oráculos](docs/domains/agent-and-oracles.md) |
 | IA, payload ou oráculo | [Agente e oráculos](docs/domains/agent-and-oracles.md) |
 | Monitoramento ou alertas | [Sentinela](docs/domains/sentinel.md) |
 | API, CI, agenda ou webhook | [Integrações](docs/domains/integrations.md) |
@@ -17,8 +18,8 @@ Leia [o índice técnico](docs/index.md) antes de alterar um fluxo. O [README](R
 ## Antes de editar
 
 1. Siga o fluxo da rota ou job até o efeito final. Leia os testes citados no guia do domínio.
-2. Preserve as [invariantes de escopo](docs/domains/scope-and-runner.md), a separação entre proposta da IA e prova do oráculo, e os estados `falha`, `protegido` e `nao_testado`.
-3. Para mudanças em `RunScan`, runner ou política do proxy, confira os dois lados do contrato HTTP interno.
+2. Preserve as [invariantes de escopo e segurança](docs/domains/scope-and-runner.md), a separação entre proposta da IA e prova do oráculo, a distinção entre achado e observação, e os estados `falha`, `protegido` e `nao_testado`.
+3. Para mudanças em `RunScan`, runner ou política do proxy, confira os dois lados do contrato HTTP interno, `guard.py` e a parada automática.
 4. Atualize a página técnica afetada no mesmo PR. Registre incertezas como tal; não transforme [decisões pendentes](docs/discovery/2026-11-16-product-architecture-and-docs-plan.md#6-questões-de-produto-para-a-revisão) em regras definitivas.
 
 ## Verificação

@@ -6,7 +6,7 @@ Estas entradas reutilizam o mesmo modelo de ambiente e sessão do console. As ro
 
 Um token `escapi_…` é emitido em Configurações, mostrado uma vez e armazenado como hash. [AuthenticateApiToken](../../app/Http/Middleware/AuthenticateApiToken.php) autentica e associa o usuário à requisição. Os endpoints são `GET /api/v1/ativos`, `POST /api/v1/sessoes` e `GET /api/v1/sessoes/{scan}`. O POST recebe `ativo` e `orcamento` opcional de 10 a 180; a sessão entra na fila e retorna `202`. [IntegrationController](../../app/Http/Controllers/IntegrationController.php), [ScanApiController](../../app/Http/Controllers/Api/ScanApiController.php).
 
-`portao.passou` é calculado em [ScanApiController](../../app/Http/Controllers/Api/ScanApiController.php): sessão concluída e nenhum achado `critical`/`high`. `portao.pendente` indica sessão em andamento. Há um [workflow de exemplo](../../public/ci/egide-github-action.yml). A flag `regressao` é exposta pela API, mas não entra hoje na expressão de `portao.passou`; confirmar a regra de produto na [descoberta](../discovery/2026-11-16-product-architecture-and-docs-plan.md).
+`portao.passou` é calculado em [ScanApiController](../../app/Http/Controllers/Api/ScanApiController.php): sessão concluída e nenhum achado confirmado `critical`/`high`. A resposta separa `itens` de `observacoes`; contagens e CVSS estimado usam somente `track=achado`. `portao.pendente` indica sessão em andamento. Há um [workflow de exemplo](../../public/ci/egide-github-action.yml). A flag `regressao` é exposta pela API, mas não entra hoje na expressão de `portao.passou`; confirmar a regra de produto na [descoberta](../discovery/2026-11-16-product-architecture-and-docs-plan.md).
 
 ## Agenda
 
@@ -14,7 +14,7 @@ O usuário configura `off`, `daily` ou `weekly` em ambiente verificado. [routes/
 
 ## Webhooks
 
-O webhook do workspace recebe conclusão de sessão, contagem de achados, risco, regressão e URL de relatório. O webhook de cada monitor recebe alertas do Sentinela. Ambos exigem URL HTTPS pública por [Webhook](../../app/Sentinel/Webhook.php). O envio ocorre em jobs com tentativas e backoff: [NotifyScan](../../app/Jobs/NotifyScan.php) e [NotifyAlert](../../app/Jobs/NotifyAlert.php). O callback de prova fora de banda em `/api/colaborador/{token}` tem finalidade distinta: confirmar SSRF, não notificar o usuário. [CollaboratorController](../../app/Http/Controllers/Api/CollaboratorController.php).
+O webhook do workspace recebe conclusão de sessão, contagem de achados confirmados, risco, regressão e URL de relatório; observações ficam fora da contagem. O webhook de cada monitor recebe alertas do Sentinela. Ambos exigem URL HTTPS pública por [Webhook](../../app/Sentinel/Webhook.php). O envio ocorre em jobs com tentativas e backoff: [NotifyScan](../../app/Jobs/NotifyScan.php) e [NotifyAlert](../../app/Jobs/NotifyAlert.php). O callback de prova fora de banda em `/api/colaborador/{token}` tem finalidade distinta: confirmar SSRF, não notificar o usuário. [CollaboratorController](../../app/Http/Controllers/Api/CollaboratorController.php).
 
 ## Ao estender
 

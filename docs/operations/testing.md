@@ -14,6 +14,8 @@ npm run build
 
 Em Windows PowerShell, `python` pode substituir `python3` conforme a instalação. Os testes Python importam módulos do runner e podem exigir `mitmproxy` no ambiente; prefira executá-los em WSL/Linux ou no ambiente Python preparado para o runner. Se `vendor/` ou `node_modules/` não existem, instale as dependências antes dos comandos. [composer.json](../../composer.json), [package.json](../../package.json), [runner/Dockerfile](../../runner/Dockerfile).
 
+Com sessões concluídas das duas variantes do laboratório, `php artisan egide:bench --last=10 --json` mede detecção, falsos positivos e custo por sessão e por achado. O consumo por fase aparece no evento e no relatório da sessão. O benchmark lê sessões existentes; não as executa. [EgideBench](../../app/Console/Commands/EgideBench.php), [RunScan](../../app/Jobs/RunScan.php).
+
 ## Encontre o teste do comportamento
 
 | Mudança | Testes iniciais |
@@ -21,6 +23,10 @@ Em Windows PowerShell, `python` pode substituir `python3` conforme a instalaçã
 | Autorização, proxy e tipo de ambiente | [ScopeTest](../../tests/Unit/ScopeTest.php), [ScopeGateTest](../../tests/Feature/ScopeGateTest.php), [test_policy.py](../../tests/runner/test_policy.py) |
 | Sessão, cobertura e laboratório | [RunScanOraclesTest](../../tests/Feature/RunScanOraclesTest.php), [AgenticLabTest](../../tests/Feature/AgenticLabTest.php), [test_lab.py](../../tests/runner/test_lab.py) |
 | Planejamento, payload e provas | [PlannerTest](../../tests/Feature/PlannerTest.php), [PayloadOraclesTest](../../tests/Unit/PayloadOraclesTest.php), [HunterTest](../../tests/Unit/HunterTest.php) |
+| Segurança por ambiente e parada automática | [SafetyIntegrationTest](../../tests/Feature/SafetyIntegrationTest.php), [TargetSafetySettingsTest](../../tests/Feature/TargetSafetySettingsTest.php), [test_policy.py](../../tests/runner/test_policy.py), [test_runner_extras.py](../../tests/runner/test_runner_extras.py) |
+| Superfície importada | [SurfaceControllerTest](../../tests/Feature/SurfaceControllerTest.php), [SurfaceImportTest](../../tests/Unit/SurfaceImportTest.php) |
+| Achados, observações, CVSS e hipóteses | [FindingTrackTest](../../tests/Feature/FindingTrackTest.php), [ObservationTrackTest](../../tests/Feature/ObservationTrackTest.php), [SeverityTest](../../tests/Unit/SeverityTest.php), [HypothesisModelTest](../../tests/Feature/HypothesisModelTest.php) |
+| Orçamento por fase e benchmark | [BudgetLedgerTest](../../tests/Unit/BudgetLedgerTest.php), [EgideBenchTest](../../tests/Feature/EgideBenchTest.php) |
 | Sentinela | [SentinelTest](../../tests/Feature/SentinelTest.php) |
 | API, CI e automação | [AutomationTest](../../tests/Feature/AutomationTest.php), [CiGateTest](../../tests/Feature/CiGateTest.php) |
 | Administração | [AdminTest](../../tests/Feature/AdminTest.php) |

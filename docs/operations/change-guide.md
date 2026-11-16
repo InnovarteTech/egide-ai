@@ -6,11 +6,19 @@ Se a mudança atravessar vários serviços ou alterar uma barreira de segurança
 
 ## Nova verificação de segurança
 
-Comece em [agente e oráculos](../domains/agent-and-oracles.md). Identifique origem do endpoint em [EndpointMap](../../app/Security/EndpointMap.php), escolha/payload em [Planner](../../app/Security/Planner.php) e [Payloads](../../app/Security/Payloads.php), envio em [RunScan](../../app/Jobs/RunScan.php) ou seus traits, e prova em [PayloadOracles](../../app/Security/PayloadOracles.php) / [ApiOracles](../../app/Security/ApiOracles.php). Acrescente cobertura e evidência, respeite orçamento/escopo, e teste vulnerável, corrigido e inconclusivo. Atualize a página do domínio.
+Comece em [agente e oráculos](../domains/agent-and-oracles.md). Identifique se o endpoint veio do tráfego, de bundles JS em [EndpointMap](../../app/Security/EndpointMap.php) ou de documento importado por [SurfaceController](../../app/Http/Controllers/SurfaceController.php) e [SurfaceImport](../../app/Security/SurfaceImport.php). Siga escolha/payload em [Planner](../../app/Security/Planner.php) e [Payloads](../../app/Security/Payloads.php), envio em [RunScan](../../app/Jobs/RunScan.php) ou seus traits, e prova em [PayloadOracles](../../app/Security/PayloadOracles.php) / [ApiOracles](../../app/Security/ApiOracles.php). Acrescente cobertura e evidência, respeite orçamento por fase e escopo, e teste vulnerável, corrigido e inconclusivo. Atualize a página do domínio.
 
 ## Novo endpoint ou ação do runner
 
-Siga `RunScan::runner()` até o handler em [runner/server.py](../../runner/server.py). Confirme token, ID de sessão, formato de entrada/saída e parada. Se gerar tráfego ao alvo, revise [policy.py](../../runner/policy.py) e [Scope](../../app/Security/Scope.php). Teste o contrato e a política antes de usar o endpoint em uma bateria.
+Siga `RunScan::runner()` até o handler em [runner/server.py](../../runner/server.py). Confirme token, ID de sessão, formato de entrada/saída e parada. Se gerar tráfego ao alvo, revise [Scope](../../app/Security/Scope.php), [session_extras.py](../../runner/session_extras.py), [policy.py](../../runner/policy.py) e [guard.py](../../runner/guard.py), inclusive modo de segurança, escritas aprovadas, ritmo e sinal de parada. Teste o contrato e a política antes de usar o endpoint em uma bateria.
+
+## Nova origem de inventário
+
+Para OpenAPI, Swagger, Postman ou HAR, acompanhe a entrada em [SurfaceController](../../app/Http/Controllers/SurfaceController.php), normalização e tratamento de origens em [SurfaceImport](../../app/Security/SurfaceImport.php), persistência em [Target](../../app/Models/Target.php) e mesclagem em `RunScan::importSurface()`. HAR e Postman descartam hosts externos; OpenAPI e Swagger usam a origem principal com aviso quando nenhum servidor corresponde. Uma rota importada não autoriza tráfego por si só: preserve as regras de [Scope](../../app/Security/Scope.php) e do proxy. Verifique [SurfaceControllerTest](../../tests/Feature/SurfaceControllerTest.php) e [SurfaceImportTest](../../tests/Unit/SurfaceImportTest.php).
+
+## Nova regra de segurança do ambiente
+
+Siga o campo desde [ConsoleController](../../app/Http/Controllers/ConsoleController.php) e [Scope::launch()](../../app/Security/Scope.php) até `RunScan::safety()`, a validação em [session_extras.py](../../runner/session_extras.py) e a decisão por requisição em [policy.py](../../runner/policy.py) / [guard.py](../../runner/guard.py). Preserve `mapeamento` em produção, a aprovação explícita de escritas, a parada automática e o limite de requisições. Verifique [TargetSafetySettingsTest](../../tests/Feature/TargetSafetySettingsTest.php), [SafetyIntegrationTest](../../tests/Feature/SafetyIntegrationTest.php) e [test_policy.py](../../tests/runner/test_policy.py).
 
 ## Novo evento ou regra do Sentinela
 

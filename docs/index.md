@@ -5,10 +5,10 @@ Este índice é a entrada para desenvolvimento. O [README](../README.md) continu
 ## Primeiro, entenda o fluxo
 
 1. [Arquitetura](architecture.md): fronteiras entre interface, Laravel, fila, runner e Sentinela.
-2. [Modelo de dados](data-model.md): entidades, estados e segredos.
-3. [Sessões](domains/scans.md): da criação ao relatório.
-4. [Escopo e executor](domains/scope-and-runner.md): autorização e controle de tráfego.
-5. [Agente e oráculos](domains/agent-and-oracles.md): proposta, execução e prova.
+2. [Modelo de dados](data-model.md): entidades, trilhas de achado/observação, estados e segredos.
+3. [Sessões](domains/scans.md): da criação ao relatório e ao orçamento por fase.
+4. [Escopo e executor](domains/scope-and-runner.md): autorização, modos de segurança e controle de tráfego.
+5. [Agente e oráculos](domains/agent-and-oracles.md): superfície importada, proposta, execução e prova.
 
 ## Depois, escolha o domínio
 
