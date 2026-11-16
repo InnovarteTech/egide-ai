@@ -17,7 +17,7 @@ O Sentinela monitora eventos enviados pela aplicação do cliente; ele não depe
 | Credential stuffing | 5 identidades distintas do mesmo IP em 10 minutos |
 | Possível tomada de conta | Login aceito após 5 falhas da identidade em 15 minutos |
 | Rajada de acesso negado | 20 eventos `access_denied` do mesmo IP em 5 minutos |
-| Anomalia | Pelo menos 10 falhas em 5 minutos e valor acima da média mais 3 desvios da janela de 24 horas |
+| Anomalia | Pelo menos 10 falhas em 5 minutos e valor acima da média mais 3 vezes o maior entre o desvio padrão e 1, calculados sobre janelas de 5 minutos das últimas 24 horas |
 
 Os tipos aceitos estão em [MonitorEvent](../../app/Models/MonitorEvent.php). O alerta é deduplicado por regra, IP, identidade e hora. Um alerta resolvido pode ser reaberto pela interface; consulte o comportamento exato em [Detector](../../app/Sentinel/Detector.php) e [SentinelController](../../app/Http/Controllers/SentinelController.php).
 

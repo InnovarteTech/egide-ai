@@ -8,7 +8,7 @@ Uma sessão é a unidade de trabalho do pentest: recebe escopo e orçamento, per
 | --- | --- | --- |
 | `laboratory` | Console ou demonstração | Usa variante `vulneravel`; pode usar roteiro sem motor de IA |
 | `retest` | Console | Usa variante `corrigido` do laboratório |
-| `external` | Console, API v1 ou agenda | Exige ambiente verificado e motor de IA configurado; produção só é mapeada, teste permite bateria agressiva |
+| `external` | Console, API v1 ou agenda | Exige ambiente verificado e motor de IA configurado; produção faz mapeamento e verificação de configuração, teste também permite bateria agressiva |
 
 O console valida e cria as sessões em [ConsoleController](../../app/Http/Controllers/ConsoleController.php). API e agenda usam [Launcher](../../app/Security/Launcher.php). Todas despacham `RunScan` após a transação. A criação de reteste externo usa `mode=external` com `retest_of`; não confunda com o modo `retest` do laboratório.
 
