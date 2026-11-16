@@ -1,6 +1,6 @@
 # Égide AI: descoberta do produto, arquitetura e plano de documentação
 
-**Estado:** levantamento para revisão. Este arquivo descreve o comportamento observado no código em 16/11/2026 e propõe documentação futura. Não substitui o README nem os documentos de design.
+**Estado:** levantamento para revisão. Este arquivo descreve o comportamento observado no código em 16/11/2026 e registra o plano executado neste PR. As decisões de produto da seção 6 continuam pendentes. Não substitui o README nem os documentos de design.
 
 ## 1. Descrição do produto
 
@@ -108,14 +108,14 @@ Estas diferenças são observações de documentação e contrato; este PR não 
 
 **Objetivo:** criar um conjunto pequeno de arquivos Markdown, útil no GitHub e no Obsidian, que leve um agente do pedido do usuário ao código, aos invariantes e aos testes certos. Usar links relativos Markdown para funcionar nos dois leitores. Manter o README como apresentação pública do produto.
 
-### Ordem de implementação em PRs seguintes
+### Etapas executadas nesta branch
 
-1. **Validar este mapa.** Revisar as quatro diferenças acima, confirmar público principal, regras de produto e o que ainda é protótipo. Resultado: lista de decisões e dúvidas resolvidas, sem transformar suposições em contratos.
-2. **Criar entrada para agentes.** `AGENTS.md` curto na raiz com ordem de leitura, comandos, convenções e regra de consultar o mapa antes de alterar fluxos sensíveis. `docs/index.md` como índice navegável. Cada instrução deve apontar para uma fonte concreta.
-3. **Documentar arquitetura e dados.** `docs/architecture.md` com diagrama, fronteiras Laravel/runner/Sentinela e ciclo da sessão; `docs/data-model.md` com relações, estados e segredos. Evitar catálogo de classes sem explicar fluxos.
-4. **Documentar por domínio.** `docs/domains/scans.md`, `scope-and-runner.md`, `agent-and-oracles.md`, `sentinel.md` e `integrations.md`. Cada página terá: finalidade, entradas, sequência, dados, invariantes, pontos de extensão e testes relevantes.
-5. **Documentar operação e contribuição.** `docs/operations/local.md`, `production.md`, `testing.md` e um guia de mudança por cenário: nova verificação, nova rota do runner, novo evento do Sentinela, nova tela. Registrar comandos reais de Windows e Unix quando diferirem.
-6. **Revisar links e uso prático.** Validar links relativos, navegar do índice até cada fluxo, conferir exemplos com código/testes e simular duas tarefas de agente para ver se o guia aponta ao arquivo correto sem exigir leitura integral do repositório.
+1. **Validar este mapa — pendente de decisão de produto.** Revisar as diferenças acima, confirmar público principal e quais partes ainda são protótipo. Os guias atuais descrevem o código e sinalizam essas decisões.
+2. **Entrada para agentes — feita.** [AGENTS.md](../../AGENTS.md) traz ordem de leitura e invariantes; [índice](../index.md) encaminha aos guias.
+3. **Arquitetura e dados — feitos.** [Arquitetura](../architecture.md) explica as fronteiras e o ciclo; [modelo de dados](../data-model.md) explica relações, estados e segredos.
+4. **Domínios — feitos.** As páginas em [docs/domains](../domains/scans.md) tratam sessões, escopo/runner, agente/oráculos, Sentinela e integrações.
+5. **Operação e contribuição — feitas.** As páginas em [docs/operations](../operations/local.md) tratam ambiente local, produção, testes e caminhos de mudança.
+6. **Revisão — feita para este PR.** Os links relativos foram conferidos; os caminhos de uma nova verificação de segurança e de uma nova regra do Sentinela foram percorridos do `AGENTS.md` até código e testes. A execução dos testes de aplicação depende das ferramentas ausentes neste ambiente.
 
 ### Critérios para aceitar a documentação final
 
