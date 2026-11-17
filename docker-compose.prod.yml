@@ -143,16 +143,6 @@ services:
   browser-3:
     <<: *browser
 
-  # Landing pública estática (microsite independente do console). O roteamento Traefik
-  # (host/domínio) fica no override server-side compose.traefik.yml.
-  landing:
-    build:
-      context: ./landing
-      args:
-        LANDING_PUBLIC_URL: ${LANDING_PUBLIC_URL:-}
-    pull_policy: build
-    restart: unless-stopped
-
 volumes:
   storage:
   db:
