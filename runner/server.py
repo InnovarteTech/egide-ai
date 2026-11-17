@@ -382,8 +382,12 @@ def probe(data):
     method = "GET"
     body = None
     raw = data.get("raw_body")
+    raw_str = data.get("raw")
+    content_type = data.get("content_type")
     verb = data.get("method")
-    if isinstance(raw, dict):
+    if isinstance(raw_str, str):
+        method = verb if verb in ("POST", "PUT", "PATCH") else "POST"
+    elif isinstance(raw, dict):
         body = raw
         method = verb if verb in ("POST", "PUT", "PATCH") else "POST"
     elif verb in ("POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"):
@@ -415,7 +419,11 @@ def probe(data):
         command["url"] = url + qs
     if method != "GET":
         command["method"] = method
-    if body is not None:
+    if isinstance(raw_str, str):
+        command["raw"] = raw_str[:4000]
+        if isinstance(content_type, str):
+            command["contentType"] = content_type[:80]
+    elif body is not None:
         command["body"] = body
     result = bridge_call(command)
     return {**result, "halt": read_halt(SESSION["dir"])} if isinstance(result, dict) else result

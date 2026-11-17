@@ -209,14 +209,14 @@ trait ProbesApiWrites
         }
         $this->scan->update(['phase' => 'Escrita sem sessão, concorrência e protótipo']);
         $seen = [];
-        $verb = $race = $proto = 0;
+        $verb = $race = $proto = $xxe = 0;
         foreach ($this->inventory as $endpoint) {
             $path = (string) ($endpoint['path'] ?? '');
             if ($path === '' || isset($seen[$path]) || ! $this->inScope($path)) {
                 continue;
             }
             $seen[$path] = true;
-            if (! $this->budgetAllows(2)) {
+            if (! $this->budgetAllows(8)) {
                 break;
             }
             if ($verb < 10) {
@@ -233,6 +233,10 @@ trait ProbesApiWrites
             if ($race < 3) {
                 $this->softCheck('Race condition', fn () => $this->raceTest($path));
                 $race++;
+            }
+            if ($xxe < 4) {
+                $this->softCheck('XXE (entidade externa)', fn () => $this->xxeTest($path));
+                $xxe++;
             }
         }
     }

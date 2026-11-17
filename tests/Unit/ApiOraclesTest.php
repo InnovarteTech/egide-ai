@@ -101,6 +101,19 @@ class ApiOraclesTest extends TestCase
         $this->assertSame('nao_testado', ApiOracles::raceAssess('/api/resgatar', 0)['verdict']);
     }
 
+    public function test_xxe_confirms_only_when_the_parser_calls_the_out_of_band_collector(): void
+    {
+        // Entidade externa fez o servidor chamar o coletor OOB (hit registrado) = XXE provada.
+        $falha = ApiOracles::xxeAssess('/api/importar', 1);
+        $this->assertSame('falha', $falha['verdict']);
+        $this->assertSame('high', $falha['finding']['severity']);
+        $this->assertSame('OWASP A05:2021 · CWE-611', $falha['finding']['evidence']['reference']);
+        $this->assertSame('/api/importar', $falha['finding']['evidence']['path']);
+
+        // Nenhum callback → não testado (ausência de OOB não prova proteção, só não confirma).
+        $this->assertSame('nao_testado', ApiOracles::xxeAssess('/api/importar', 0)['verdict']);
+    }
+
     public function test_graphql_batching_marker_and_alias_payload_helpers(): void
     {
         $query = ApiOracles::aliasFlood('login', '(input:{email:"a@a",password:"x"})', 30);

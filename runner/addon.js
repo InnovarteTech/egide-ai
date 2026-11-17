@@ -84,9 +84,14 @@ async function collect(command) {
     const init = {credentials: anon ? 'omit' : 'include', cache:'no-store', redirect:'manual', headers, signal:AbortSignal.timeout(8500)};
     if (command.method && command.method !== 'GET') {
       init.method = command.method;
-      if (command.body !== undefined && command.method !== 'HEAD' && command.method !== 'OPTIONS') {
-        headers['Content-Type'] = 'application/json';
-        init.body = JSON.stringify(command.body);
+      if (command.method !== 'HEAD' && command.method !== 'OPTIONS') {
+        if (typeof command.raw === 'string') {
+          headers['Content-Type'] = command.contentType || 'application/xml';
+          init.body = command.raw;
+        } else if (command.body !== undefined) {
+          headers['Content-Type'] = 'application/json';
+          init.body = JSON.stringify(command.body);
+        }
       }
     }
     const t0 = Date.now();
@@ -101,9 +106,14 @@ async function collect(command) {
     const init = {credentials: anon ? 'omit' : 'same-origin', cache:'no-store', redirect:'manual', headers};
     if (command.method && command.method !== 'GET') {
       init.method = command.method;
-      if (command.body !== undefined && command.method !== 'HEAD' && command.method !== 'OPTIONS') {
-        headers['Content-Type'] = 'application/json';
-        init.body = JSON.stringify(command.body);
+      if (command.method !== 'HEAD' && command.method !== 'OPTIONS') {
+        if (typeof command.raw === 'string') {
+          headers['Content-Type'] = command.contentType || 'application/xml';
+          init.body = command.raw;
+        } else if (command.body !== undefined) {
+          headers['Content-Type'] = 'application/json';
+          init.body = JSON.stringify(command.body);
+        }
       }
     }
     const code = `(async () => {

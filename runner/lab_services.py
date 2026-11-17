@@ -302,6 +302,19 @@ def post(lab, path, page=None):
             return True
         lab.reply(json.dumps({"data": {"faturas": []}}), kind="application/json")
         return True
+    importar = re.fullmatch(r"/servicos/(vulneravel|corrigido)/importar", urlsplit(lab.path).path)
+    if importar:
+        raw = lab.rfile.read(min(int(lab.headers.get("Content-Length", 0)), 4096)).decode(errors="replace")
+        entity = re.search(r'<!ENTITY\s+\w+\s+SYSTEM\s+"([^"]+)"', raw)
+        if importar.group(1) == "vulneravel" and entity:
+            destino = entity.group(1)
+            if destino.startswith(("http://", "https://")) and public_host(destino):
+                try:
+                    urllib.request.urlopen(destino, timeout=4).read(64)
+                except Exception:
+                    pass
+        lab.reply(json.dumps({"ok": True, "importado": bool(entity)}), kind="application/json")
+        return True
     preferencias = re.fullmatch(r"/servicos/(vulneravel|corrigido)/preferencias", urlsplit(lab.path).path)
     if preferencias:
         try:

@@ -110,6 +110,21 @@ final class ApiOracles
         return ['verdict' => 'protegido', 'finding' => null];
     }
 
+    public static function xxeAssess(string $path, int $callbackHits): array
+    {
+        if ($callbackHits <= 0) {
+            return ['verdict' => 'nao_testado', 'finding' => null];
+        }
+
+        return ['verdict' => 'falha', 'finding' => [
+            'title' => 'XXE: parser XML resolve entidade externa', 'severity' => 'high',
+            'category' => 'InjectionCheck · XXE (entidade externa)',
+            'evidence' => ['method' => 'POST', 'path' => $path, 'callback_hits' => $callbackHits, 'reference' => 'OWASP A05:2021 · CWE-611',
+                'detail' => 'Um XML com entidade externa SYSTEM fez o servidor chamar o coletor out-of-band da Égide. Um parser que resolve DTD/entidade externa permite ler arquivos locais e SSRF. O conteúdo não foi armazenado.'],
+            'remediation' => 'Desabilite DTD e entidades externas no parser (libxml_disable_entity_loader / FEATURE_SECURE_PROCESSING / noent desligado); não resolva entidades em XML vindo do cliente.',
+        ]];
+    }
+
     public static function aliasFlood(string $field, string $args, int $count): string
     {
         $ops = [];
