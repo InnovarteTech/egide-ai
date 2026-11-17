@@ -92,6 +92,9 @@ trait HuntsAgentically
                 'ssrf' => $this->ssrfProbe($path, $point, ['value' => $x['value']], $callback),
                 default => $this->redirectProbe($path, $point, ['value' => $x['value'], 'marker' => $x['marker']]),
             };
+            if ($technique === 'ssrf') {
+                $this->cloudSsrfProbe($path, $point);
+            }
 
             return ['resultado' => count($this->coverage) > $before ? end($this->coverage)['verdict'] : 'nao_testado'];
         }

@@ -4,6 +4,7 @@ namespace App\Jobs\Concerns;
 
 use App\Models\CollaboratorHit;
 use App\Models\Finding;
+use App\Security\ApiOracles;
 use App\Security\PayloadOracles;
 use App\Security\Payloads;
 use Illuminate\Support\Facades\Storage;
@@ -47,9 +48,15 @@ trait ProbesInjectionPoints
                 if (in_array($point['class'], ['sqli_time', 'sqli_error', 'sqli_bool'], true)) {
                     $this->proven[$proof] = true;
                 }
+                if ($point['class'] === 'ssrf') {
+                    $this->cloudSsrfProbe($path, $point);
+                }
 
                 return;
             }
+        }
+        if ($point['class'] === 'ssrf') {
+            $this->cloudSsrfProbe($path, $point);
         }
     }
 
@@ -74,6 +81,29 @@ trait ProbesInjectionPoints
 
         return $this->recordAssessment('SSRF · callback out-of-band', $path, $assessment, 'Servidor chamou o coletor da Égide',
             "A injeção em {$path} ({$point['point']}) fez o servidor chamar o callback.");
+    }
+
+    private function cloudSsrfProbe(string $path, array $point): bool
+    {
+        foreach ([
+            'http://169.254.169.254/latest/meta-data/',
+            'http://169.254.169.254/latest/meta-data/iam/security-credentials/',
+            'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token',
+        ] as $url) {
+            $this->checkStop();
+            if (! $this->budgetAllows(1)) {
+                break;
+            }
+            $probe = $this->sendProbe($path, $point, $url);
+            $assessment = ApiOracles::cloudMetadataAssess($path, (string) ($probe['sample'] ?? ''));
+            if ($assessment['verdict'] === 'falha') {
+                return $this->recordAssessment('SSRF · metadados de nuvem', $path, $assessment, 'Metadados de nuvem expostos via SSRF',
+                    "A injeção em {$path} ({$point['point']}) devolveu metadados da instância de nuvem.");
+            }
+        }
+
+        // Não registra cobertura nao_testado: evita mascarar o veredito do ssrfProbe no mesmo ponto.
+        return false;
     }
 
     private function responseProbe(string $path, array $point, array $payload): bool

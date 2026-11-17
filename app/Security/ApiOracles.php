@@ -125,6 +125,32 @@ final class ApiOracles
         ]];
     }
 
+    public static function cloudMetadataAssess(string $path, string $sample): array
+    {
+        // Só assinaturas que aparecem na RESPOSTA real de metadados — nunca substrings presentes
+        // na própria URL injetada (iam/security-credentials/, computeMetadata/v1), senão um alvo que
+        // ecoa o parâmetro vira falso-positivo crítico.
+        $patterns = [
+            '~"SecretAccessKey"\s*:~',
+            '~\bami-id\b.{0,400}\binstance-id\b~s',
+            '~"access_token"\s*:.{0,80}"token_type"\s*:~s',
+            '~"azEnvironment"~',
+        ];
+        foreach ($patterns as $pattern) {
+            if (preg_match($pattern, $sample)) {
+                return ['verdict' => 'falha', 'finding' => [
+                    'title' => 'SSRF expõe metadados da instância de nuvem', 'severity' => 'critical',
+                    'category' => 'SSRF · metadados de nuvem',
+                    'evidence' => ['method' => 'GET', 'path' => $path, 'reference' => 'OWASP A10:2021 · CWE-918',
+                        'detail' => 'Uma injeção de SSRF alcançou o endpoint de metadados da nuvem (169.254.169.254 / metadata.google.internal) e a resposta trouxe credenciais/identidade da instância — permite roubo de credenciais temporárias e escalonamento na nuvem. O conteúdo não foi armazenado.'],
+                    'remediation' => 'Bloqueie no servidor requisições a 169.254.169.254 e a redes internas; exija IMDSv2 com hop-limit 1; use allowlist de hosts para qualquer requisição feita pelo servidor.',
+                ]];
+            }
+        }
+
+        return ['verdict' => 'nao_testado', 'finding' => null];
+    }
+
     public static function aliasFlood(string $field, string $args, int $count): string
     {
         $ops = [];

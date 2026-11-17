@@ -114,6 +114,24 @@ class ApiOraclesTest extends TestCase
         $this->assertSame('nao_testado', ApiOracles::xxeAssess('/api/importar', 0)['verdict']);
     }
 
+    public function test_cloud_metadata_ssrf_confirms_only_when_instance_credentials_surface(): void
+    {
+        // SSRF que alcançou o IMDS da AWS e trouxe credenciais temporárias = crítico.
+        $imds = '{"Code":"Success","AccessKeyId":"ASIAEXAMPLE","SecretAccessKey":"abc/def","Token":"x"}';
+        $falha = ApiOracles::cloudMetadataAssess('/servicos/integrador', $imds);
+        $this->assertSame('falha', $falha['verdict']);
+        $this->assertSame('critical', $falha['finding']['severity']);
+        $this->assertSame('OWASP A10:2021 · CWE-918', $falha['finding']['evidence']['reference']);
+
+        // Resposta de token do GCP (corpo real, não a URL) também conta.
+        $this->assertSame('falha', ApiOracles::cloudMetadataAssess('/x', '{"access_token":"ya29.abc","expires_in":3599,"token_type":"Bearer"}')['verdict']);
+        // Resposta comum da aplicação nunca vira falso-positivo.
+        $this->assertSame('nao_testado', ApiOracles::cloudMetadataAssess('/x', '{"ok":true,"itens":[{"id":1}]}')['verdict']);
+        // Eco da URL injetada (iam/security-credentials/, computeMetadata/v1) NÃO pode disparar — era o falso-positivo da revisão.
+        $this->assertSame('nao_testado', ApiOracles::cloudMetadataAssess('/x', 'destino invalido: http://169.254.169.254/latest/meta-data/iam/security-credentials/')['verdict']);
+        $this->assertSame('nao_testado', ApiOracles::cloudMetadataAssess('/x', 'erro ao buscar http://metadata.google.internal/computeMetadata/v1/')['verdict']);
+    }
+
     public function test_graphql_batching_marker_and_alias_payload_helpers(): void
     {
         $query = ApiOracles::aliasFlood('login', '(input:{email:"a@a",password:"x"})', 30);

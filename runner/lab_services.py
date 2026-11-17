@@ -17,6 +17,10 @@ DOCUMENTS = {"manual.pdf": "Manual do portal (documento fictício do laboratóri
 SYSTEM_FILES = {"/etc/passwd": "root:x:0:0:root:/root:/bin/bash\ndaemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\nprisma:x:1000:1000:Prisma Faturas:/srv/prisma:/bin/bash\n",
                 "/windows/win.ini": "; for 16-bit app support\n[fonts]\n[extensions]\n"}
 CUSTOMERS = [{"id": 1, "nome": "Clínica Aurora", "status": "ativos"}, {"id": 2, "nome": "Salão Ébano", "status": "inativos"}]
+METADATA_HOSTS = ("169.254.169.254", "metadata.google.internal", "metadata")
+IMDS_CREDENTIALS = ('{"Code":"Success","Type":"AWS-HMAC","AccessKeyId":"ASIAEGIDELABTEST01",'
+                    '"SecretAccessKey":"egideLabFakeSecretDoNotUse/0000000000000000000000000",'
+                    '"Token":"egide-lab-synthetic-imds-token","Expiration":"2099-01-01T00:00:00Z"}')
 SCHEMA = {"queryType": {"name": "Query"}, "types": [{"name": "Query"}, {"name": "Fatura"}, {"name": "Empresa"}, {"name": "Usuario"}]}
 BUNDLE = """(() => {{
   const alvo = document.getElementById('aviso');
@@ -161,6 +165,9 @@ def get(lab, path, page):
     if integrador:
         variant = integrador.group(1)
         destino = parse_qs(urlsplit(lab.path).query).get("url", [""])[0]
+        if variant == "vulneravel" and (urlsplit(destino).hostname or "").lower() in METADATA_HOSTS:
+            lab.reply(IMDS_CREDENTIALS, kind="text/plain; charset=utf-8")
+            return True
         if variant == "vulneravel" and destino.startswith(("http://", "https://")) and public_host(destino):
             try:
                 urllib.request.urlopen(destino, timeout=4).read(64)
