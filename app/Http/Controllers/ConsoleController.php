@@ -485,6 +485,7 @@ class ConsoleController extends Controller
                 ['method' => 'POST', 'path' => "/{$variant}/entrar", 'prefix' => false],
                 ['method' => 'POST', 'path' => "/servicos/{$variant}/graphql", 'prefix' => false],
                 ['method' => 'POST', 'path' => "/servicos/{$variant}/importar", 'prefix' => false],
+                ['method' => 'POST', 'path' => "/servicos/{$variant}/transferir", 'prefix' => false],
                 ['method' => 'POST', 'path' => "/servicos/{$variant}/preferencias", 'prefix' => false],
                 ['method' => 'POST', 'path' => "/servicos/{$variant}/resgatar", 'prefix' => false],
                 ['method' => 'DELETE', 'path' => "/servicos/{$variant}/reservas", 'prefix' => true],

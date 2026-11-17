@@ -74,7 +74,8 @@ class Lab(BaseHTTPRequestHandler):
     def redirect(self, path, session=None):
         headers = {"Location": path}
         if session:
-            headers["Set_Cookie"] = f"lab_session={session}; HttpOnly; Path=/; SameSite=Strict; Max-Age=1800"
+            samesite = "" if "/vulneravel" in path else "; SameSite=Strict"
+            headers["Set_Cookie"] = f"lab_session={session}; HttpOnly; Path=/{samesite}; Max-Age=1800"
         self.reply("", 303, **headers)
 
     def actor(self):

@@ -132,6 +132,22 @@ class ApiOraclesTest extends TestCase
         $this->assertSame('nao_testado', ApiOracles::cloudMetadataAssess('/x', 'erro ao buscar http://metadata.google.internal/computeMetadata/v1/')['verdict']);
     }
 
+    public function test_csrf_confirms_only_with_session_dependence_no_token_and_missing_samesite(): void
+    {
+        // Com sessão foi aceito (200), anônimo recusado (401) → depende da sessão; sem SameSite → forjável.
+        $falha = ApiOracles::csrfAssess('/servicos/transferir', 200, 401, true);
+        $this->assertSame('falha', $falha['verdict']);
+        $this->assertSame('medium', $falha['finding']['severity']);
+        $this->assertSame('OWASP A01:2021 · CWE-352', $falha['finding']['evidence']['reference']);
+
+        // SameSite presente → navegador bloqueia POST cross-site → protegido.
+        $this->assertSame('protegido', ApiOracles::csrfAssess('/servicos/transferir', 200, 401, false)['verdict']);
+        // Anônimo também aceito (200) → endpoint público, não depende de sessão → NÃO é CSRF.
+        $this->assertSame('protegido', ApiOracles::csrfAssess('/servicos/transferir', 200, 200, true)['verdict']);
+        // Requisição com sessão foi recusada (403: exige token) → protegido.
+        $this->assertSame('protegido', ApiOracles::csrfAssess('/servicos/transferir', 403, 401, true)['verdict']);
+    }
+
     public function test_graphql_batching_marker_and_alias_payload_helpers(): void
     {
         $query = ApiOracles::aliasFlood('login', '(input:{email:"a@a",password:"x"})', 30);

@@ -209,7 +209,7 @@ trait ProbesApiWrites
         }
         $this->scan->update(['phase' => 'Escrita sem sessão, concorrência e protótipo']);
         $seen = [];
-        $verb = $race = $proto = $xxe = 0;
+        $verb = $race = $proto = $xxe = $csrf = 0;
         foreach ($this->inventory as $endpoint) {
             $path = (string) ($endpoint['path'] ?? '');
             if ($path === '' || isset($seen[$path]) || ! $this->inScope($path)) {
@@ -237,6 +237,12 @@ trait ProbesApiWrites
             if ($xxe < 4) {
                 $this->softCheck('XXE (entidade externa)', fn () => $this->xxeTest($path));
                 $xxe++;
+            }
+            // CSRF só em endpoints cujo método descoberto é de escrita — um POST forjado numa página
+            // GET (que uma SPA responde 200) não prova nada e gastaria o orçamento à toa.
+            if ($csrf < 4 && in_array(strtoupper((string) ($endpoint['method'] ?? 'GET')), ['POST', 'PUT', 'PATCH'], true)) {
+                $this->softCheck('CSRF', fn () => $this->csrfTest($path));
+                $csrf++;
             }
         }
     }

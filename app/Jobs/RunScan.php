@@ -550,6 +550,45 @@ class RunScan implements ShouldQueue
         }
     }
 
+    private function sessionCookieUnprotected(): bool
+    {
+        foreach (array_keys($this->issues) as $issue) {
+            if (! preg_match('~^cookie:([^:]+):([^:]*)$~', (string) $issue, $match)) {
+                continue;
+            }
+            $name = strtolower($match[1]);
+            // Só o cookie de SESSÃO importa para CSRF — ignora analytics/tema e cookies de token
+            // anti-CSRF (que são legítimos sem SameSite num esquema double-submit).
+            $isSession = preg_match('~sess|sid|auth|login|jwt|connect|identity|token~', $name) && ! preg_match('~csrf|xsrf~', $name);
+            if ($isSession && preg_match('~\bsamesite\b~', $match[2])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function csrfTest(string $path): void
+    {
+        if (! $this->aggressiveAllowed() || ! Scope::allows($this->scan->scope, 'POST', $path) || ! $this->budgetAllows(3)) {
+            return;
+        }
+        $body = 'egide_csrf=1';
+        $type = 'application/x-www-form-urlencoded';
+        $withCookie = $this->runner('/probe', ['path' => $path, 'method' => 'POST', 'raw' => $body, 'content_type' => $type, 'direct' => true, 'markers' => []]);
+        $this->observe(false);
+        $anon = $this->runner('/probe', ['path' => $path, 'method' => 'POST', 'raw' => $body, 'content_type' => $type, 'direct' => true, 'anon' => true, 'markers' => []]);
+        $this->observe(false);
+        $cookieStatus = empty($withCookie['blocked']) ? (int) ($withCookie['status'] ?? 0) : 0;
+        $anonStatus = empty($anon['blocked']) ? (int) ($anon['status'] ?? 0) : 0;
+        $assessment = ApiOracles::csrfAssess($path, $cookieStatus, $anonStatus, $this->sessionCookieUnprotected());
+        $this->cover('AuthCheck · CSRF', $path, $assessment['verdict']);
+        if ($assessment['finding']) {
+            $this->scan->findings()->create($assessment['finding']);
+            $this->scan->event('finding', 'CSRF: escrita forjável de outro site', 'O endpoint '.$path.' processou um POST simples dependente da sessão, sem token anti-CSRF, e o cookie de sessão não tem SameSite.', $assessment['finding']['evidence']);
+        }
+    }
+
     private function jwtAssess(string $token): array
     {
         $parts = explode('.', $token);
@@ -1066,6 +1105,7 @@ class RunScan implements ShouldQueue
         $this->softCheck('Métodos de escrita', fn () => $this->verbMatrixTest("/servicos/{$variant}/reservas/ab12cd34"));
         $this->softCheck('Race condition', fn () => $this->raceTest("/servicos/{$variant}/resgatar"));
         $this->softCheck('XXE (entidade externa)', fn () => $this->xxeTest("/servicos/{$variant}/importar"));
+        $this->softCheck('CSRF', fn () => $this->csrfTest("/servicos/{$variant}/transferir"));
         foreach (["/servicos/{$variant}/busca?q=1", "/servicos/{$variant}/consulta?id=1", "/servicos/{$variant}/integrador?url=x",
             "/servicos/{$variant}/pedido?id=1", "/servicos/{$variant}/retorno?destino=/{$variant}/painel",
             "/servicos/{$variant}/arquivo?file=manual.pdf", "/servicos/{$variant}/clientes?filtro=ativos",

@@ -125,6 +125,28 @@ final class ApiOracles
         ]];
     }
 
+    public static function csrfAssess(string $path, int $cookieStatus, int $anonStatus, bool $sameSiteMissing): array
+    {
+        // Forjável cross-site só quando TODAS valem: (1) a ação foi processada COM a sessão da vítima
+        // sem token anti-CSRF; (2) a MESMA requisição SEM cookies é recusada (401/403) — prova que a
+        // ação depende da sessão, senão é endpoint público e não há CSRF; (3) o cookie de sessão não
+        // tem SameSite. Exigir as três evita falso-positivo (endpoint público, app com SameSite/token).
+        $cookieAccepted = in_array($cookieStatus, [200, 201, 202, 204, 302, 303], true);
+        $anonRejected = in_array($anonStatus, [401, 403], true);
+        if (! $cookieAccepted || ! $anonRejected || ! $sameSiteMissing) {
+            return ['verdict' => 'protegido', 'finding' => null];
+        }
+
+        return ['verdict' => 'falha', 'finding' => [
+            'title' => 'CSRF: escrita dependente de sessão, sem token e sem SameSite', 'severity' => 'medium',
+            'category' => 'AuthCheck · CSRF',
+            'evidence' => ['method' => 'POST', 'path' => $path, 'cookie_status' => $cookieStatus, 'anon_status' => $anonStatus,
+                'reference' => 'OWASP A01:2021 · CWE-352',
+                'detail' => 'O servidor processou um POST form-urlencoded dependente da sessão (anônimo foi recusado) sem token anti-CSRF, e o cookie de sessão não traz SameSite=Lax/Strict (ausente ou None). Um formulário em outro site pode forjar a ação — nos navegadores que não assumem SameSite=Lax por padrão, ou na janela inicial após o login nos que assumem.'],
+            'remediation' => 'Exija token anti-CSRF (sincronizado ou double-submit) nas escritas e emita o cookie de sessão com SameSite=Lax ou Strict (nunca None sem necessidade).',
+        ]];
+    }
+
     public static function cloudMetadataAssess(string $path, string $sample): array
     {
         // Só assinaturas que aparecem na RESPOSTA real de metadados — nunca substrings presentes

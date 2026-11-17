@@ -309,6 +309,17 @@ def post(lab, path, page=None):
             return True
         lab.reply(json.dumps({"data": {"faturas": []}}), kind="application/json")
         return True
+    transferir = re.fullmatch(r"/servicos/(vulneravel|corrigido)/transferir", urlsplit(lab.path).path)
+    if transferir:
+        lab.rfile.read(min(int(lab.headers.get("Content-Length", 0)), 1024))
+        if not lab.actor():
+            lab.reply(json.dumps({"error": "sessao necessaria"}), 401, "application/json")
+            return True
+        if transferir.group(1) == "corrigido" and not lab.headers.get("X-CSRF-Token"):
+            lab.reply(json.dumps({"error": "token CSRF ausente"}), 403, "application/json")
+            return True
+        lab.reply(json.dumps({"ok": True, "transferido": True}), kind="application/json")
+        return True
     importar = re.fullmatch(r"/servicos/(vulneravel|corrigido)/importar", urlsplit(lab.path).path)
     if importar:
         raw = lab.rfile.read(min(int(lab.headers.get("Content-Length", 0)), 4096)).decode(errors="replace")

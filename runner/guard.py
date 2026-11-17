@@ -319,7 +319,7 @@ def inspect(flow, local_port):
         missing = [flag for flag, present in (
             ("secure", scheme != "https" or "secure" in parts),
             ("httponly", "httponly" in parts or name.lower() in ("xsrf-token", "csrftoken", "csrf_token", "_csrf")),
-            ("samesite", any(part.startswith("samesite=") for part in parts)),
+            ("samesite", any(part.startswith("samesite=") and part.strip() != "samesite=none" for part in parts)),
         ) if not present]
         if name and missing:
             found.append("cookie:" + name + ":" + ",".join(missing))

