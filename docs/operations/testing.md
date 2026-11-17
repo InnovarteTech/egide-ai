@@ -14,6 +14,13 @@ npm run build
 
 Em Windows PowerShell, `python` pode substituir `python3` conforme a instalação. Os testes Python importam módulos do runner e podem exigir `mitmproxy` no ambiente; prefira executá-los em WSL/Linux ou no ambiente Python preparado para o runner. Se `vendor/` ou `node_modules/` não existem, instale as dependências antes dos comandos. [composer.json](../../composer.json), [package.json](../../package.json), [runner/Dockerfile](../../runner/Dockerfile).
 
+O [microsite público](../../landing/README.md) é separado do aplicativo e usa somente Node para gerar e verificar as versões EN/PT:
+
+```bash
+node landing/build.mjs
+node landing/check.mjs
+```
+
 Com sessões concluídas das duas variantes do laboratório, `php artisan egide:bench --last=10 --json` mede detecção, falsos positivos e custo por sessão e por achado. O consumo por fase aparece no evento e no relatório da sessão. O benchmark lê sessões existentes; não as executa. [EgideBench](../../app/Console/Commands/EgideBench.php), [RunScan](../../app/Jobs/RunScan.php).
 
 ## Encontre o teste do comportamento

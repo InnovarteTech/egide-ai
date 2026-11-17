@@ -16,6 +16,7 @@ Este índice é a entrada para desenvolvimento. O [README](../README.md) continu
 | --- | --- |
 | Monitoramento contínuo | [Sentinela](domains/sentinel.md) |
 | API, CI, agendamento e webhooks | [Integrações](domains/integrations.md) |
+| Landing pública EN/PT | [Microsite estático](../landing/README.md) e [decisões de design](superpowers/specs/2026-11-17-egide-landing-design.md) |
 | Desenvolvimento local | [Ambiente local](operations/local.md) |
 | Deploy e processos | [Produção](operations/production.md) |
 | Testes e evidências | [Testes](operations/testing.md) |
