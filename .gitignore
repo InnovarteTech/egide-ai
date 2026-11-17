@@ -26,3 +26,5 @@ Thumbs.db
 /runner/__pycache__/
 /.agents/skills/
 /.agents/vendor/
+/.codex/
+/.superpowers/
