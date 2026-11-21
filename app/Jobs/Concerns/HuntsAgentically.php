@@ -8,6 +8,7 @@ use App\Security\Hunter;
 use App\Security\PayloadOracles;
 use App\Security\Planner;
 use App\Security\Scope;
+use App\Security\TechniqueCards;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -154,7 +155,7 @@ trait HuntsAgentically
             $coverage[$row['check'].' · '.$row['route']] = $row['verdict'];
         }
 
-        return [
+        $context = [
             'inventario' => array_slice(array_values(array_map(fn ($endpoint) => [
                 'method' => $endpoint['method'] ?? 'GET', 'path' => $endpoint['path'] ?? '/',
                 'params' => $endpoint['params'] ?? [], 'body' => $endpoint['body'] ?? [],
@@ -165,6 +166,9 @@ trait HuntsAgentically
             'passos_restantes' => $stepsLeft,
             'requisicoes_restantes' => max(0, (int) $this->scan->budget - $this->allowed),
         ];
+        $context['tecnicas_de_referencia'] = TechniqueCards::relevant($context, 3);
+
+        return $context;
     }
 
     private function huntSnippet(string $sample, array $needles): string
