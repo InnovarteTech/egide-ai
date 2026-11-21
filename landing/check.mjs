@@ -10,29 +10,22 @@ const js = await readFile(join(dist, "assets/site.js"), "utf8");
 assert.match(css, /\[hidden\]\s*\{\s*display:\s*none\s*!important\s*;?\s*\}/);
 assert.match(js, /location\.hash/);
 
-const examples = [
-    ["XSS", "CVE-2024-11846"],
-    ["SQLi", "CVE-2023-34362"],
-    ["IDOR", "CVE-2024-42169"],
-    ["SSRF", "CVE-2021-26855"],
-    ["CSRF", "CVE-2024-13244"],
-];
 const pages = [
     {
-        path: "index.html",
+        path: "en/index.html",
         lang: "en",
-        hero: "Your product",
+        hero: "Every flaw",
         cta: "Talk to a consultant",
-        event: "access denied",
-        locale: "/pt-br/",
+        event: "flaws proven",
+        locale: "/",
     },
     {
-        path: "pt-br/index.html",
+        path: "index.html",
         lang: "pt-BR",
-        hero: "Seu produto",
+        hero: "Cada falha",
         cta: "Fale com um consultor",
-        event: "acesso negado",
-        locale: "/",
+        event: "falhas provadas",
+        locale: "/en/",
     },
 ];
 
@@ -47,15 +40,11 @@ for (const page of pages) {
     assert.match(html, /hreflang="pt-BR"/);
     assert.ok(html.includes(page.hero));
     assert.ok(html.includes(page.cta));
-    assert.ok(html.includes(page.event), `${page.path}: missing Sentinela event`);
+    assert.ok(html.includes(page.event), `${page.path}: missing stats`);
     assert.ok(new RegExp(`<a[^>]*id="locale"[^>]*href="${page.locale}"`, 's').test(html), `${page.path}: wrong language link`);
-    assert.ok(/<small[^>]*id="booking-note"[^>]*\bhidden\b/s.test(html), `${page.path}: booking note must start hidden`);
-    assert.equal((html.match(/class="wall-word"/g) ?? []).length, 27);
-    assert.equal((html.match(/class="cloud-cve"/g) ?? []).length, 5);
-    for (const [label, cve] of examples) {
-        assert.ok(html.includes(`${label} / ${cve}`));
-        assert.ok(html.includes(`https://nvd.nist.gov/vuln/detail/${cve}`));
-    }
+    assert.equal((html.match(/href="https:\/\/wa\.me\/5588993105030\?text=[^"]+"/g) ?? []).length, 3, `${page.path}: consultant CTAs must open WhatsApp`);
+    assert.ok(html.includes("sessao-ao-vivo.mp4"), `${page.path}: missing session video`);
+    assert.equal((html.match(/<img [^>]*alt="[^"]+"/g) ?? []).length, 7);
     assert.doesNotMatch(
         html,
         /\{\{|visual direction study|synthetic lab|illustrative|Human threats|Word size:/i,
@@ -93,5 +82,5 @@ for (const match of css.matchAll(/url\(['"]?([^'"\)]+)['"]?\)/g)) {
 }
 
 console.log(
-    "Landing checks passed: locales, metadata, links, CVEs, assets, and booking state.",
+    "Landing checks passed: locales, metadata, links, video, alt text, assets, and WhatsApp CTAs.",
 );

@@ -4,7 +4,7 @@
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="color-scheme" content="dark light" />
-        <meta name="theme-color" content="#181021" />
+        <meta name="theme-color" content="#120c1a" />
         <link rel="icon" type="image/svg+xml" href="{{assetPrefix}}assets/egide.svg" />
         <title>{{title}}</title>
         <meta name="description" content="{{description}}" />
@@ -14,704 +14,150 @@
         <meta property="og:locale" content="{{ogLocale}}" />
         <link rel="alternate" hreflang="en" href="{{englishUrl}}" />
         <link rel="alternate" hreflang="pt-BR" href="{{portugueseUrl}}" />
-        <link rel="alternate" hreflang="x-default" href="{{englishUrl}}" />
-        <link
-            rel="preload"
-            as="image"
-            href="{{assetPrefix}}assets/route-sculpture-v1.png"
-        />
+        <link rel="alternate" hreflang="x-default" href="{{portugueseUrl}}" />
+        <link rel="preload" as="image" href="{{assetPrefix}}assets/sessao-poster.webp" />
         <link rel="stylesheet" href="{{assetPrefix}}assets/site.css" />
     </head>
     <body>
         <header class="top wrap">
-            <a
-                class="logo"
-                href="#top"
-                aria-label="Égide AI home"
-                data-i18n-aria="brandHome"
-            >
+            <a class="logo" href="#top" aria-label="Égide AI home" data-i18n-aria="brandHome">
                 <img src="{{assetPrefix}}assets/egide.svg" alt="" />
-                <span>
-                    Égide
-                    <b>AI</b>
-                </span>
+                <span>Égide <b>AI</b></span>
             </a>
             <nav aria-label="Main navigation" data-i18n-aria="mainNavigation">
-                <a href="#risk" data-i18n="navRisk">The risk</a>
-                <a href="#proof" data-i18n="navProof">The proof</a>
-                <a
-                    class="locale"
-                    id="locale"
-                    href="{{localeHref}}"
-                    aria-label="{{localeSwitchLabel}}"
-                >
-                    EN
-                    <span>/</span>
-                    PT
-                </a>
-                <a
-                    class="top-cta"
-                    href="#contact"
-                    aria-label="Talk to a consultant"
-                    data-i18n-aria="talkAria"
-                >
-                    <span data-i18n="talk">Talk to a consultant</span>
-                    <svg viewBox="0 0 20 20" aria-hidden="true">
-                        <path d="M4 16 16 4M6 4h10v10" />
-                    </svg>
-                </a>
+                <a class="nav-link" href="#prova" data-i18n="navProof">The proof</a>
+                <a class="nav-link" href="#correcao" data-i18n="navFix">Before and after</a>
+                <a class="locale" id="locale" href="{{localeHref}}" aria-label="{{localeSwitchLabel}}">EN <span>/</span> PT</a>
+                <a class="btn btn-sm" href="{{waUrl}}" target="_blank" rel="noopener" data-i18n="talk">Talk to a consultant</a>
             </nav>
         </header>
         <main id="top">
             <section class="hero" aria-labelledby="hero-title">
-                <div class="wrap">
-                    <div class="hero-intro">
-                        <p data-i18n="intro">
-                            Every new feature opens another way in.
-                        </p>
-                    </div>
-                    <h1 class="hero-title" id="hero-title">
-                        <span data-i18n="heroA">Your product</span>
-                        <span data-i18n="heroB">scaled.</span>
-                        <span data-i18n="heroC">Your security</span>
-                        <span class="last" data-i18n="heroD">didn't.</span>
-                    </h1>
-                    <div
-                        class="sculpture"
-                        role="img"
-                        aria-label="Paper sculpture of multiplying product routes crossed by a violet path"
-                        data-i18n-aria="sculptureAria"
-                    >
-                        <img
-                            src="{{assetPrefix}}assets/route-sculpture-v1.png"
-                            alt=""
-                        />
-                    </div>
-                    <div class="hero-rail">
-                        <a class="text-link" href="#risk">
-                            <span data-i18n="follow">Follow the risk</span>
-                            <svg viewBox="0 0 20 20" aria-hidden="true">
-                                <path d="M10 3v13m0 0 6-6m-6 6-6-6" />
-                            </svg>
-                        </a>
-                    </div>
-                </div>
-            </section>
-            <section
-                class="scenario scene"
-                id="risk"
-                aria-labelledby="risk-title"
-            >
-                <div class="wrap scene-grid">
-                    <div class="scene-copy">
-                        <h2 id="risk-title" data-i18n="riskTitle">
-                            A new route.
-                            <br />
-                            A new way through.
-                        </h2>
-                        <p data-i18n="riskBody">
-                            When access changes, one account may reach what
-                            belongs to another.
-                        </p>
-                    </div>
-                    <div
-                        class="boundary"
-                        role="group"
-                        aria-label="Account boundary diagram"
-                        data-i18n-aria="boundaryAria"
-                    >
-                        <div class="boundary-side">
-                            <span class="label" data-i18n="session">
-                                Session / account A
-                            </span>
-                            <strong>A</strong>
-                            <span class="small" data-i18n="sessionNote">
-                                The signed-in account.
-                            </span>
-                        </div>
-                        <div class="boundary-side">
-                            <span class="label" data-i18n="record">
-                                Record / account B
-                            </span>
-                            <strong>B</strong>
-                            <span class="small" data-i18n="recordNote">
-                                A different account's data.
-                            </span>
-                        </div>
-                        <div class="request">
-                            <span class="route">
-                                <code>GET</code>
-                                /invoices/{id_b}
-                            </span>
-                            <span class="line"></span>
-                            <span class="arrow"></span>
-                        </div>
-                    </div>
-                </div>
-            </section>
-            <section
-                class="proof scene"
-                id="proof"
-                aria-labelledby="proof-title"
-            >
-                <div class="wrap scene-grid">
-                    <div class="scene-copy">
-                        <h2 id="proof-title" data-i18n="proofTitle">
-                            Proof,
-                            <br />
-                            not a guess.
-                        </h2>
-                        <p data-i18n="proofBody">
-                            A finding enters the report when an objective check
-                            confirms it.
-                        </p>
-                    </div>
-                    <div>
-                        <div
-                            class="evidence"
-                            role="group"
-                            aria-label="IDOR proof rule"
-                            data-i18n-aria="evidenceAria"
-                        >
-                            <div class="evidence-head">
-                                <span data-i18n="trace">
-                                    How an IDOR is confirmed
-                                </span>
-                            </div>
-                            <div class="evidence-line">
-                                <small data-i18n="requestLabel">Request</small>
-                                <code data-i18n="proofRequest">
-                                    Account A → /invoices/{id_b}
-                                </code>
-                            </div>
-                            <div class="evidence-line">
-                                <small data-i18n="responseLabel">
-                                    Response
-                                </small>
-                                <code data-i18n="proofResponse">
-                                    If 200 OK contains
-                                    <span>marker_B</span>
-                                </code>
-                            </div>
-                            <div class="evidence-verdict">
-                                <i></i>
-                                <span data-i18n="verified">
-                                    Then IDOR is confirmed
-                                </span>
-                            </div>
-                        </div>
-                        <p class="evidence-note" data-i18n="proofNote">
-                            A marker from B in A’s response is objective proof.
-                        </p>
-                    </div>
-                </div>
-            </section>
-            <section
-                class="risk-spectrum"
-                id="spectrum"
-                aria-labelledby="spectrum-title"
-            >
-                <div class="wrap">
-                    <div class="spectrum-head">
-                        <h2 id="spectrum-title" data-i18n="spectrumTitle">
-                            The risk doesn't stop at IDOR.
-                        </h2>
-                    </div>
-                    <div class="map-frame">
-                        <div class="map-top">
-                            <a
-                                class="map-source"
-                                href="https://nvd.nist.gov/vuln/search"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                data-i18n="spectrumSource"
-                            >
-                                NVD source ↗
-                            </a>
-                        </div>
-                        <div
-                            class="word-wall"
-                            role="list"
-                            aria-label="Software weakness classes with public CVE examples"
-                            data-i18n-aria="wallAria"
-                        >
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="xss"
-                                data-cwe="CWE-79"
-                                data-count="25322"
-                                data-i18n="wallXss"
-                            >
-                                XSS
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="sqli"
-                                data-cwe="CWE-89"
-                                data-count="11945"
-                                data-i18n="wallSqli"
-                            >
-                                SQL injection
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="input"
-                                data-cwe="CWE-20"
-                                data-count="9014"
-                                data-i18n="wallInput"
-                            >
-                                Validation failures
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="exposure"
-                                data-cwe="CWE-200"
-                                data-count="6677"
-                                data-i18n="wallExposure"
-                            >
-                                Information exposure
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="traversal"
-                                data-cwe="CWE-22"
-                                data-count="6532"
-                                data-i18n="wallTraversal"
-                            >
-                                Path traversal
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="csrf"
-                                data-cwe="CWE-352"
-                                data-count="4774"
-                                data-i18n="wallCsrf"
-                            >
-                                CSRF
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="command"
-                                data-cwe="CWE-78"
-                                data-count="4036"
-                                data-i18n="wallCommand"
-                            >
-                                Command injection
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="code"
-                                data-cwe="CWE-94"
-                                data-count="3563"
-                                data-i18n="wallCode"
-                            >
-                                Code injection
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="authzmissing"
-                                data-cwe="CWE-862"
-                                data-count="3546"
-                                data-i18n="wallAuthzMissing"
-                            >
-                                Missing authorization
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="auth"
-                                data-cwe="CWE-287"
-                                data-count="3117"
-                                data-i18n="wallAuth"
-                            >
-                                Authentication failures
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="authzincorrect"
-                                data-cwe="CWE-863"
-                                data-count="2907"
-                                data-i18n="wallAuthzIncorrect"
-                            >
-                                Incorrect authorization
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="upload"
-                                data-cwe="CWE-434"
-                                data-count="2169"
-                                data-i18n="wallUpload"
-                            >
-                                Unsafe file upload
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="authmissing"
-                                data-cwe="CWE-306"
-                                data-count="1963"
-                                data-i18n="wallAuthMissing"
-                            >
-                                Missing authentication
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="ssrf"
-                                data-cwe="CWE-918"
-                                data-count="1555"
-                                data-i18n="wallSsrf"
-                            >
-                                SSRF
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="privilege"
-                                data-cwe="CWE-269"
-                                data-count="1441"
-                                data-i18n="wallPrivilege"
-                            >
-                                Privilege errors
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="deserialize"
-                                data-cwe="CWE-502"
-                                data-count="1344"
-                                data-i18n="wallDeserialize"
-                            >
-                                Unsafe deserialization
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="secrets"
-                                data-cwe="CWE-798"
-                                data-count="1331"
-                                data-i18n="wallSecrets"
-                            >
-                                Hardcoded credentials
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="permissions"
-                                data-cwe="CWE-732"
-                                data-count="1248"
-                                data-i18n="wallPermissions"
-                            >
-                                Unsafe file permissions
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="exhaustion"
-                                data-cwe="CWE-400"
-                                data-count="1199"
-                                data-i18n="wallExhaustion"
-                            >
-                                Resource exhaustion
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="credexposure"
-                                data-cwe="CWE-522"
-                                data-count="1037"
-                                data-i18n="wallCredExposure"
-                            >
-                                Exposed credentials
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="xxe"
-                                data-cwe="CWE-611"
-                                data-count="1008"
-                                data-i18n="wallXxe"
-                            >
-                                XXE
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="access"
-                                data-cwe="CWE-284"
-                                data-count="972"
-                                data-i18n="wallAccess"
-                            >
-                                Access control flaws
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="redirect"
-                                data-cwe="CWE-601"
-                                data-count="922"
-                                data-i18n="wallRedirect"
-                            >
-                                Open redirect
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="idor"
-                                data-cwe="CWE-639"
-                                data-count="865"
-                                data-i18n="wallIdor"
-                            >
-                                IDOR
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="logs"
-                                data-cwe="CWE-532"
-                                data-count="768"
-                                data-i18n="wallLogs"
-                            >
-                                Sensitive data in logs
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="prototype"
-                                data-cwe="CWE-1321"
-                                data-count="383"
-                                data-i18n="wallPrototype"
-                            >
-                                Prototype pollution
-                            </span>
-                            <span
-                                class="wall-word"
-                                role="listitem"
-                                data-key="smuggling"
-                                data-cwe="CWE-444"
-                                data-count="223"
-                                data-i18n="wallSmuggling"
-                            >
-                                Request smuggling
-                            </span>
-                            <span
-                                class="cloud-cve-item"
-                                role="listitem"
-                                data-parent="xss"
-                            >
-                                <a
-                                    class="cloud-cve"
-                                    href="https://nvd.nist.gov/vuln/detail/CVE-2024-11846"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                >
-                                    XSS / CVE-2024-11846
-                                </a>
-                            </span>
-                            <span
-                                class="cloud-cve-item"
-                                role="listitem"
-                                data-parent="sqli"
-                            >
-                                <a
-                                    class="cloud-cve"
-                                    href="https://nvd.nist.gov/vuln/detail/CVE-2023-34362"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                >
-                                    SQLi / CVE-2023-34362
-                                </a>
-                            </span>
-                            <span
-                                class="cloud-cve-item"
-                                role="listitem"
-                                data-parent="idor"
-                            >
-                                <a
-                                    class="cloud-cve"
-                                    href="https://nvd.nist.gov/vuln/detail/CVE-2024-42169"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                >
-                                    IDOR / CVE-2024-42169
-                                </a>
-                            </span>
-                            <span
-                                class="cloud-cve-item"
-                                role="listitem"
-                                data-parent="ssrf"
-                            >
-                                <a
-                                    class="cloud-cve"
-                                    href="https://nvd.nist.gov/vuln/detail/CVE-2021-26855"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                >
-                                    SSRF / CVE-2021-26855
-                                </a>
-                            </span>
-                            <span
-                                class="cloud-cve-item"
-                                role="listitem"
-                                data-parent="csrf"
-                            >
-                                <a
-                                    class="cloud-cve"
-                                    href="https://nvd.nist.gov/vuln/detail/CVE-2024-13244"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                >
-                                    CSRF / CVE-2024-13244
-                                </a>
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            </section>
-            <section class="method" id="method" aria-labelledby="method-title">
-                <div class="wrap">
-                    <div class="method-head">
-                        <h2 id="method-title" data-i18n="methodTitle">
-                            Test what you authorize. See what holds.
-                        </h2>
-                        <p data-i18n="methodBody">
-                            Égide explores the allowed surface. Deterministic
-                            checks separate verified findings from protected and
-                            untested paths.
-                        </p>
-                    </div>
-                    <div
-                        class="method-track"
-                        role="group"
-                        aria-label="How Égide works"
-                        data-i18n-aria="methodAria"
-                    >
-                        <div class="method-node">
-                            <small data-i18n="scopeSmall">Owner sets</small>
-                            <strong data-i18n="scopeStrong">The scope</strong>
-                        </div>
-                        <div class="method-node">
-                            <small data-i18n="agentSmall">AI proposes</small>
-                            <strong data-i18n="agentStrong">A test</strong>
-                        </div>
-                        <div class="method-node">
-                            <small data-i18n="oracleSmall">Oracle checks</small>
-                            <strong data-i18n="oracleStrong">
-                                The evidence
-                            </strong>
-                        </div>
-                        <div class="method-node">
-                            <small data-i18n="reportSmall">Team receives</small>
-                            <strong data-i18n="reportStrong">
-                                A clear result
-                            </strong>
-                        </div>
-                    </div>
-                    <p class="method-foot" data-i18n="methodFoot">
-                        Active testing requires authorization in test
-                        environments. Production checks are limited to mapping
-                        and configuration.
+                <div class="wrap hero-head">
+                    <p class="pill"><i></i><span data-i18n="heroPill">Autonomous AI pentest</span></p>
+                    <h1 id="hero-title" data-i18n="heroTitle">Every flaw,<br /><em>proven.</em></h1>
+                    <p class="lead" data-i18n="heroLead">
+                        AI attacks your app the way an intruder would. Only
+                        what it proves makes the report, with the evidence.
                     </p>
-                </div>
-            </section>
-            <section
-                class="sentinel"
-                id="sentinel"
-                aria-labelledby="sentinel-title"
-            >
-                <div class="wrap sentinel-grid">
-                    <div>
-                        <h2 id="sentinel-title" data-i18n="sentinelTitle">
-                            The next release changes the picture.
-                        </h2>
-                        <p data-i18n="sentinelBody">
-                            Sentinela watches events and alerts your team when
-                            something needs attention.
-                        </p>
+                    <div class="actions">
+                        <a class="btn" href="{{waUrl}}" target="_blank" rel="noopener" data-i18n="talk">Talk to a consultant</a>
+                        <a class="btn btn-ghost" href="#prova" data-i18n="seeProof">See the proof ↓</a>
                     </div>
-                    <div
-                        class="signal-field"
-                        role="group"
-                        aria-label="Sentinela event path"
-                        data-i18n-aria="sentinelAria"
-                    >
-                        <div class="signal-line"></div>
-                        <div class="signal-line"></div>
-                        <div class="signal-line"></div>
-                        <div class="signal-label" data-i18n="eventStream">
-                            Event stream
+                </div>
+                <div class="wrap">
+                    <figure class="session" id="sessao">
+                        <div class="frame">
+                            <div class="frame-bar">
+                                <span class="dots"><i></i><i></i><i></i></span>
+                                <span class="rec"><i></i><span data-i18n="recLabel">Real recording</span></span>
+                                <span class="speed" data-i18n="speedLabel">40 min in 22 s</span>
+                            </div>
+                            <video
+                                autoplay
+                                muted
+                                loop
+                                playsinline
+                                preload="metadata"
+                                poster="{{assetPrefix}}assets/sessao-poster.webp"
+                                width="1440"
+                                height="810"
+                                aria-label="Égide AI session running: endpoints mapped, attacks attempted and failures confirmed in real time"
+                                data-i18n-aria="videoAria"
+                            >
+                                <source src="{{assetPrefix}}assets/sessao-ao-vivo.mp4" type="video/mp4" />
+                            </video>
                         </div>
-                        <svg
-                            class="signal-path"
-                            viewBox="0 0 480 280"
-                            preserveAspectRatio="none"
-                            aria-hidden="true"
-                        >
-                            <path
-                                d="M0 0 C130 0 84 120 210 120 S310 275 480 275"
-                            />
-                            <circle cx="0" cy="0" r="5" />
-                            <circle cx="210" cy="120" r="5" />
-                            <circle cx="480" cy="275" r="6" />
-                        </svg>
-                        <span class="signal-chip" data-i18n="accessDenied">
-                            access denied
-                        </span>
-                        <span class="signal-chip" data-i18n="eventDetected">
-                            event detected
-                        </span>
-                        <span class="signal-chip" data-i18n="teamAlert">
-                            team alerted
-                        </span>
-                        <span
-                            class="signal-caption"
-                            data-i18n="sentinelCaption"
-                        >
-                            Sentinela monitors and alerts. Your team decides
-                            what to investigate next.
-                        </span>
+                        <figcaption>
+                            <dl class="stats">
+                                <div><dt>27</dt><dd data-i18n="statEndpoints">endpoints mapped</dd></div>
+                                <div><dt>209</dt><dd data-i18n="statRequests">requests</dd></div>
+                                <div class="bad"><dt>23</dt><dd data-i18n="statFindings">flaws proven</dd></div>
+                                <div><dt>3</dt><dd data-i18n="statBlocked">blocked by scope</dd></div>
+                            </dl>
+                            <small data-i18n="labNote">Égide lab with planted flaws. Session PT-C56675.</small>
+                        </figcaption>
+                    </figure>
+                </div>
+            </section>
+
+            <section class="pain" aria-labelledby="pain-title">
+                <div class="wrap pain-grid">
+                    <h2 id="pain-title" data-i18n="painTitle">You ship every week. Your pentest happens once a year.</h2>
+                    <ul>
+                        <li data-i18n="pain1">New routes go live untested.</li>
+                        <li data-i18n="pain2">Scanners raise alerts, not proof.</li>
+                        <li data-i18n="pain3">One swapped ID in the URL leaks customer data.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section class="proof" id="prova" aria-labelledby="proof-title">
+                <div class="wrap">
+                    <div class="sec-head">
+                        <h2 id="proof-title" data-i18n="proofTitle">Proof, not alerts.</h2>
+                        <p data-i18n="proofLead">Real screenshots from one Égide session.</p>
+                    </div>
+                    <div class="tabs" role="tablist" aria-label="Proof examples" data-i18n-aria="tabsAria">
+                        <button role="tab" id="t-bola" aria-controls="p-bola" aria-selected="true" data-i18n="bolaTag">Account A changed account B's data</button>
+                        <button role="tab" id="t-file" aria-controls="p-file" aria-selected="false" tabindex="-1" data-i18n="fileTag">Server file read</button>
+                        <button role="tab" id="t-sqli" aria-controls="p-sqli" aria-selected="false" tabindex="-1" data-i18n="sqliTag">Database answered the injection</button>
+                        <button role="tab" id="t-xss" aria-controls="p-xss" aria-selected="false" tabindex="-1" data-i18n="xssTag">Script ran in the browser</button>
+                    </div>
+                    <div class="stage">
+                        <figure class="card" role="tabpanel" id="p-bola" aria-labelledby="t-bola">
+                            <img src="{{assetPrefix}}assets/prova-bola.webp" alt="Write BOLA finding: account A session changed account B's record" data-i18n-alt="bolaAlt" loading="lazy" width="1600" height="463" />
+                        </figure>
+                        <figure class="card" role="tabpanel" id="p-file" aria-labelledby="t-file" hidden>
+                            <img src="{{assetPrefix}}assets/prova-arquivo.webp" alt="Path traversal finding returning the server passwd file" data-i18n-alt="fileAlt" loading="lazy" width="1600" height="387" />
+                        </figure>
+                        <figure class="card" role="tabpanel" id="p-sqli" aria-labelledby="t-sqli" hidden>
+                            <img src="{{assetPrefix}}assets/prova-sqli.webp" alt="Boolean SQL injection finding with payload, rounds and HTTP results" data-i18n-alt="sqliAlt" loading="lazy" width="1600" height="473" />
+                        </figure>
+                        <figure class="card" role="tabpanel" id="p-xss" aria-labelledby="t-xss" hidden>
+                            <img src="{{assetPrefix}}assets/prova-xss.webp" alt="DOM XSS finding with the screenshot taken at the moment of proof" data-i18n-alt="xssAlt" loading="lazy" width="1600" height="1218" />
+                        </figure>
                     </div>
                 </div>
             </section>
-            <section
-                class="contact"
-                id="contact"
-                aria-labelledby="contact-title"
-            >
-                <div class="wrap contact-grid">
-                    <h2 id="contact-title" data-i18n="contactTitle">
-                        Know where to start.
-                    </h2>
-                    <div class="contact-side">
-                        <p data-i18n="contactBody">
-                            Walk through your app, APIs, and authorized scope
-                            with an Égide consultant.
-                        </p>
-                        <button class="cta-link" type="button" id="booking-cta">
-                            <span data-i18n="talk">Talk to a consultant</span>
-                            <svg viewBox="0 0 20 20" aria-hidden="true">
-                                <path d="M4 16 16 4M6 4h10v10" />
-                            </svg>
-                        </button>
-                        <small
-                            id="booking-note"
-                            data-i18n="booking"
-                            role="status"
-                            hidden
-                        >
-                            Booking opens soon.
-                        </small>
+
+            <section class="scope" aria-labelledby="scope-title">
+                <div class="wrap scope-grid">
+                    <div>
+                        <h2 id="scope-title" data-i18n="scopeTitle">AI proposes.<br />The proxy limits.</h2>
+                        <p data-i18n="scopeLead">You define what can be tested. Anything else is blocked before it leaves.</p>
+                    </div>
+                    <figure class="card">
+                        <img src="{{assetPrefix}}assets/prova-escopo.webp" alt="Session rules: allowed and blocked routes enforced by the proxy" data-i18n-alt="scopeAlt" loading="lazy" width="1100" height="508" />
+                    </figure>
+                </div>
+            </section>
+
+            <section class="fix" id="correcao" aria-labelledby="fix-title">
+                <div class="wrap">
+                    <div class="sec-head">
+                        <h2 id="fix-title" data-i18n="fixTitle">From the test to the fix.</h2>
+                        <p data-i18n="fixLead">Fix it, click retest, and the same attacks run again.</p>
+                    </div>
+                    <div class="fix-grid">
+                        <figure class="card">
+                            <figcaption><span class="tag tag-bad" data-i18n="beforeTag">Before · 23 flaws</span></figcaption>
+                            <img src="{{assetPrefix}}assets/product-result.webp" alt="Session result with confirmed exposure and critical findings" data-i18n-alt="beforeAlt" loading="lazy" width="1600" height="1125" />
+                        </figure>
+                        <figure class="card">
+                            <figcaption><span class="tag tag-good" data-i18n="afterTag">After the retest · isolation confirmed</span></figcaption>
+                            <img src="{{assetPrefix}}assets/product-retest.webp" alt="Retest result with account isolation confirmed" data-i18n-alt="afterAlt" loading="lazy" width="1500" height="1055" />
+                        </figure>
+                    </div>
+                </div>
+            </section>
+
+            <section class="contact" id="contato" aria-labelledby="contact-title">
+                <div class="wrap contact-box">
+                    <h2 id="contact-title" data-i18n="contactTitle">See Égide on your app.</h2>
+                    <div>
+                        <a class="btn" id="booking-cta" href="{{waUrl}}" target="_blank" rel="noopener"><span data-i18n="talk">Talk to a consultant</span></a>
+                        <small data-i18n="waNote">WhatsApp · +55 88 99310-5030</small>
                     </div>
                 </div>
             </section>

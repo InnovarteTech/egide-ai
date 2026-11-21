@@ -20,58 +20,64 @@ const base = process.env.LANDING_PUBLIC_URL?.replace(/\/+$/, "") ?? "";
 if (base && !/^https:\/\/[^/]+$/.test(base)) {
     throw new Error("LANDING_PUBLIC_URL must be an HTTPS URL");
 }
-const englishUrl = `${base}/`;
-const portugueseUrl = `${base}/pt-br/`;
+const englishUrl = `${base}/en/`;
+const portugueseUrl = `${base}/`;
 
 const aria = {
     en: {
         brandHome: "Égide AI home",
         mainNavigation: "Main navigation",
-        talkAria: "Talk to a consultant",
-        sculptureAria:
-            "Paper sculpture of multiplying product routes crossed by a violet path",
-        boundaryAria: "Account boundary diagram",
-        evidenceAria: "IDOR proof rule",
-        wallAria: "Software weakness classes with public CVE examples",
-        methodAria: "How Égide works",
-        sentinelAria: "Sentinela event path",
+        tabsAria: "Proof examples",
+        videoAria:
+            "Égide AI session running: endpoints mapped, attacks attempted and flaws confirmed in real time",
+        xssAlt: "DOM XSS finding with the screenshot taken at the moment of proof",
+        fileAlt: "Path traversal finding returning the server passwd file",
+        sqliAlt: "Boolean SQL injection finding with payload, rounds and HTTP results",
+        bolaAlt: "Write BOLA finding: account A's session changed account B's record",
+        scopeAlt: "Session rules: allowed and blocked routes enforced by the proxy",
+        beforeAlt: "Session result with confirmed exposure and critical findings",
+        afterAlt: "Retest result with account isolation confirmed",
     },
     "pt-BR": {
         brandHome: "Página inicial da Égide AI",
         mainNavigation: "Navegação principal",
-        talkAria: "Fale com um consultor",
-        sculptureAria:
-            "Escultura de papel com rotas de produto que se multiplicam, atravessadas por um caminho violeta",
-        boundaryAria: "Diagrama da fronteira entre contas",
-        evidenceAria: "Regra de confirmação de IDOR",
-        wallAria: "Classes de falhas de software com exemplos de CVEs públicos",
-        methodAria: "Como a Égide funciona",
-        sentinelAria: "Caminho de eventos do Sentinela",
+        tabsAria: "Exemplos de prova",
+        videoAria:
+            "Sessão da Égide AI rodando: endpoints mapeados, ataques tentados e falhas confirmadas em tempo real",
+        xssAlt: "Achado de XSS no DOM com a captura feita no instante da prova",
+        fileAlt: "Achado de travessia de diretório devolvendo o arquivo passwd do servidor",
+        sqliAlt: "Achado de injeção de SQL booleana com carga, rodadas e respostas HTTP",
+        bolaAlt: "Achado de BOLA de escrita: a sessão da conta A alterou o registro da conta B",
+        scopeAlt: "Regras da sessão: rotas permitidas e bloqueadas impostas pelo proxy",
+        beforeAlt: "Resultado da sessão com exposição confirmada e falhas críticas",
+        afterAlt: "Resultado do reteste com isolamento entre contas confirmado",
     },
 };
 
 const pages = [
     {
         lang: "en",
-        out: "index.html",
-        assetPrefix: "./",
-        localeHref: "/pt-br/",
+        out: "en/index.html",
+        assetPrefix: "../",
+        localeHref: "/",
         localeSwitchLabel: "View the Brazilian Portuguese version",
         ogLocale: "en_US",
-        title: "Égide AI — See the risk. Verify the finding.",
+        waUrl: "https://wa.me/5588993105030?text=" + encodeURIComponent("Hi! I would like to see Égide AI on my app."),
+        title: "Égide AI — Every flaw, proven.",
         description:
-            "Your product scaled. Your security didn’t. See where access can fail, understand the proof, and talk to an Égide consultant.",
+            "Autonomous AI pentest: Égide attacks your app like an intruder and only reports what it proves, with evidence, scope enforced by a proxy and one-click retest.",
     },
     {
         lang: "pt-BR",
-        out: "pt-br/index.html",
-        assetPrefix: "../",
-        localeHref: "/",
+        out: "index.html",
+        assetPrefix: "./",
+        localeHref: "/en/",
         localeSwitchLabel: "Ver a versão em inglês",
         ogLocale: "pt_BR",
-        title: "Égide AI — Veja o risco. Confirme a falha.",
+        waUrl: "https://wa.me/5588993105030?text=" + encodeURIComponent("Olá! Quero ver a Égide AI no meu app."),
+        title: "Égide AI — Cada falha, provada.",
         description:
-            "Seu produto escalou. Sua segurança, não. Entenda onde o acesso pode falhar, veja a prova e fale com um consultor da Égide.",
+            "Pentest autônomo com IA: a Égide ataca seu app como um invasor e só reporta o que prova, com evidência, escopo travado por proxy e reteste em um clique.",
     },
 ];
 
@@ -113,6 +119,14 @@ function render(page) {
                 ` aria-label="${escapeAttribute(label)}"`,
             );
     });
+    html = html.replace(/<[^>]+\bdata-i18n-alt="([^"]+)"[^>]*>/g, (tag) => {
+        const key = tag.match(/\bdata-i18n-alt="([^"]+)"/)[1];
+        const label = aria[page.lang][key];
+        if (!label) throw new Error(`Missing alt text: ${page.lang}/${key}`);
+        return tag
+            .replace(/\sdata-i18n-alt="[^"]+"/, "")
+            .replace(/\salt="[^"]*"/, ` alt="${escapeAttribute(label)}"`);
+    });
     html = html.replace(/\sdata-i18n="[^"]+"/g, "");
     const values = { ...page, englishUrl, portugueseUrl };
     html = html.replace(/\{\{(\w+)\}\}/g, (match, key) => {
@@ -123,7 +137,7 @@ function render(page) {
 }
 
 await rm(dist, { recursive: true, force: true });
-await mkdir(join(dist, "pt-br"), { recursive: true });
+await mkdir(join(dist, "en"), { recursive: true });
 await mkdir(join(dist, "assets"), { recursive: true });
 await cp(join(root, "src/assets"), join(dist, "assets"), { recursive: true });
 await cp(join(root, "src/site.css"), join(dist, "assets/site.css"));

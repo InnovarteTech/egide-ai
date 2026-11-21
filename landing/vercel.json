@@ -2,5 +2,9 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "node build.mjs",
   "outputDirectory": "dist",
-  "cleanUrls": true
+  "cleanUrls": true,
+  "redirects": [
+    { "source": "/pt-br", "destination": "/", "permanent": true },
+    { "source": "/pt-br/(.*)", "destination": "/$1", "permanent": true }
+  ]
 }
