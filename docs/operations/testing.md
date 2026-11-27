@@ -31,6 +31,18 @@ Com Redis, Horizon e os runners Docker no ar (`bin/egide`), `php artisan egide:b
 
 `egide:bench:run --provedores=lab,anthropic,openai` roda a matriz de provedores: os pares de cada provedor são medidos em relatórios separados na chave `matriz` do JSON. Provedores hospedados precisam de chave: a do Super admin vale para o provedor configurado lá; para os demais use `EGIDE_BENCH_<PROVEDOR>_KEY` (ex.: `EGIDE_BENCH_OPENAI_KEY`). `--modelo=` troca o modelo dos hospedados. `egide:bench:run --concorrencia=N` lança N sessões simultâneas da variante vulnerável e mede o tempo de fila (`fila_s`, média e máximo) no lugar do relatório de detecção.
 
+## Benchmark em alvos externos
+
+`egide:bench:alvos` mede detecção e falsos positivos contra aplicações vulneráveis conhecidas (Juice Shop, VAmPI, DVWA) rodando na máquina local — sem verificação de domínio e sem tráfego na internet, via alvos locais (`*.local.egide.test` + `local_port`).
+
+```bash
+docker compose -f compose.alvos.yml up -d          # sobe os alvos em 127.0.0.1 (portas em bench/alvos.json)
+EGIDE_LOCAL_TARGETS=1 EGIDE_RUNNER_LOCAL=1 bin/egide   # runners passam a aceitar local_port
+php artisan egide:bench:alvos --orcamento=2000 --saida=alvos.json
+```
+
+Cada alvo vira um `Target` com `environment_type=test` e `safety=livre` (regras `* /*` por padrão), recebe uma sessão `external` e é medido por `egide:bench --modo=external --gabarito=<do alvo>`. O relatório sai na chave `alvos` do JSON, uma entrada por `provedor:nome`. `--provedores=` e `--min=` funcionam como no `bench:run`. Os gabaritos ficam em `tests/fixtures/gabaritos/<nome>.json` e são aproximados: derivam das listas públicas de vulnerabilidades de cada app e cobrem só as classes que o scanner consegue provar — ajuste ao medir de verdade. O DVWA exige o clique inicial em `/setup.php` antes do scan. [EgideBenchAlvos](../../app/Console/Commands/EgideBenchAlvos.php), [alvos.json](../../bench/alvos.json), [compose.alvos.yml](../../compose.alvos.yml).
+
 ## Carga do Sentinela
 
 [scripts/bench/sentinela-carga.js](../../scripts/bench/sentinela-carga.js) é um roteiro [k6](https://k6.io) para `POST /api/sentinela/eventos`. Crie monitores, passe as chaves em `KEYS` e rode:

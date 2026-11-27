@@ -407,4 +407,51 @@ class EgideBenchTest extends TestCase
         $this->assertSame(0, Scan::count());
         Queue::assertNothingPushed();
     }
+
+    public function test_modo_external_measures_targets_and_retest_sessions(): void
+    {
+        $original = $this->labSession('external', [$this->cover(self::BFLA, 'falha')], [self::BFLA],
+            ['scope' => ['lab' => false, 'url' => 'https://juice.local.egide.test']]);
+        $retest = $this->labSession('external', [$this->cover(self::BFLA, 'protegido')], [self::SSRF],
+            ['scope' => ['lab' => false, 'url' => 'https://juice.local.egide.test', 'retest_of' => $original->id]]);
+        $this->labSession('laboratory', [$this->cover(self::SQLI, 'falha')], [self::SQLI]);
+
+        $report = $this->bench(['--modo' => 'external']);
+
+        $this->assertSame(1, $report['originais']['sessoes']);
+        $this->assertSame([self::BFLA], $report['originais']['uniao']);
+        $this->assertSame(1, $report['retestes']['sessoes']);
+        $this->assertSame(1, $report['retestes']['falsos_positivos']);
+        $this->assertSame('externo', $report['sessoes'][0]['variante']);
+    }
+
+    public function test_alvos_queues_external_scans_against_local_targets(): void
+    {
+        Queue::fake();
+        $admin = User::factory()->create(['is_admin' => true]);
+        $this->app->detectEnvironment(fn () => 'local');
+        config(['egide.local_targets' => true]);
+
+        $fixture = tempnam(sys_get_temp_dir(), 'alvos').'.json';
+        file_put_contents($fixture, json_encode(['alvos' => [[
+            'nome' => 'juice-shop', 'origem' => 'https://juice.local.egide.test', 'porta' => 3000,
+            'gabarito' => 'x.json', 'credenciais' => ['a' => ['email' => 'a@x.dev', 'senha' => 's3nh4']],
+        ]]]));
+
+        $this->artisan('egide:bench:alvos', ['--alvos' => $fixture, '--espera' => 1, '--intervalo' => 1])
+            ->expectsOutputToContain('1 sessões enfileiradas (lab)')
+            ->expectsOutputToContain('Tempo esgotado')
+            ->assertFailed();
+
+        $target = \App\Models\Target::first();
+        $scan = Scan::first();
+        $this->assertSame('https://juice.local.egide.test', $target->origin);
+        $this->assertSame(3000, $target->local_port);
+        $this->assertNotNull($target->verified_at);
+        $this->assertSame('external', $scan->mode);
+        $this->assertSame('livre', $scan->scope['safety']);
+        $this->assertSame($admin->id, $scan->user_id);
+        Queue::assertPushed(RunScan::class, 1);
+        unlink($fixture);
+    }
 }

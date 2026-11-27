@@ -1,0 +1,11 @@
+{
+  "descricao": "Falhas do DVWA (nível low) mapeadas para as classes de verificação do scanner. Exige setup e login; use --usuario com credenciais admin/password no alvo.",
+  "classes": [
+    "AuthCheck · CSRF",
+    "AuthCheck · sem limite de tentativas",
+    "InjectionCheck · SQLi por erro",
+    "InjectionCheck · SQLi booleano",
+    "InjectionCheck · XSS refletido",
+    "InjectionCheck · path traversal"
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "descricao": "Alvos locais conhecidos para egide:bench:alvos. Suba com: docker compose -f compose.alvos.yml up -d",
+  "alvos": [
+    {
+      "nome": "juice-shop",
+      "origem": "https://juice-shop.local.egide.test",
+      "porta": 3000,
+      "entrada": "/",
+      "gabarito": "tests/fixtures/gabaritos/juice-shop.json",
+      "foco": "loja de demonstração OWASP com falhas conhecidas de autenticação, injeção e autorização",
+      "credenciais": {
+        "a": {"email": "bench-a@juice.local", "senha": "egide-bench-1"},
+        "b": {"email": "bench-b@juice.local", "senha": "egide-bench-2"}
+      }
+    },
+    {
+      "nome": "vampi",
+      "origem": "https://vampi.local.egide.test",
+      "porta": 5000,
+      "entrada": "/",
+      "gabarito": "tests/fixtures/gabaritos/vampi.json",
+      "foco": "API vulnerável de demonstração (OWASP API Top 10)",
+      "credenciais": {
+        "a": {"email": "bench_a", "senha": "egide-bench-1"},
+        "b": {"email": "bench_b", "senha": "egide-bench-2"}
+      }
+    },
+    {
+      "nome": "dvwa",
+      "origem": "https://dvwa.local.egide.test",
+      "porta": 4280,
+      "entrada": "/login.php",
+      "gabarito": "tests/fixtures/gabaritos/dvwa.json",
+      "foco": "DVWA com segurança em nível low; exige setup manual em /setup.php antes do scan",
+      "credenciais": {
+        "a": {"email": "admin", "senha": "password"}
+      }
+    }
+  ]
+}

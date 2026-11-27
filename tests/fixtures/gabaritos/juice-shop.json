@@ -1,0 +1,18 @@
+{
+  "descricao": "Falhas conhecidas do OWASP Juice Shop que o scanner pode plausivelmente provar (aproximado, derivado da lista pública de desafios).",
+  "classes": [
+    "Acesso sem autenticação",
+    "AuthCheck · sem limite de tentativas",
+    "BOLA · autorização por objeto",
+    "BOLA de escrita · autorização por objeto",
+    "Configuração · cabeçalhos HTTP",
+    "Configuração · cookies",
+    "ExcessiveData · exposição excessiva",
+    "InjectionCheck · DOM XSS",
+    "InjectionCheck · SQLi por erro",
+    "InjectionCheck · SQLi booleano",
+    "InjectionCheck · XSS refletido",
+    "Mass assignment · atribuição em massa",
+    "RedirectCheck · open redirect"
+  ]
+}

@@ -22,6 +22,7 @@ class EgideBench extends Command
     private const VERDICTS = ['nao_testado' => 0, 'protegido' => 1, 'falha' => 2];
 
     protected $signature = 'egide:bench
+        {--modo=laboratory : Modo das sessões medidas: laboratory ou external}
         {--last=10 : Quantidade de sessões concluídas mais recentes de cada variante}
         {--json : Imprime o relatório em JSON}
         {--sessao=* : Limita o relatório a estas sessões}
@@ -39,8 +40,15 @@ class EgideBench extends Command
             return self::FAILURE;
         }
 
-        $originals = $this->rows('laboratory', 'vulneravel', $last);
-        $retests = $this->rows('retest', 'corrigido', $last);
+        $modo = (string) $this->option('modo');
+        if (! in_array($modo, ['laboratory', 'external'], true)) {
+            $this->error('Informe --modo como laboratory ou external.');
+
+            return self::FAILURE;
+        }
+        $external = $modo === 'external';
+        $originals = $external ? $this->rows('external', 'externo', $last, false) : $this->rows('laboratory', 'vulneravel', $last);
+        $retests = $external ? $this->rows('external', 'reteste', $last, true) : $this->rows('retest', 'corrigido', $last);
         $report = [
             'parametros' => ['last' => $last, 'categorias_configuracao' => self::CONFIGURATION_CATEGORIES],
             'originais' => $this->detection($originals),
@@ -118,9 +126,11 @@ class EgideBench extends Command
         ];
     }
 
-    private function rows(string $mode, string $variant, int $last): array
+    private function rows(string $mode, string $variant, int $last, ?bool $retestOf = null): array
     {
-        $scans = Scan::query()->where('status', 'completed')->where('mode', $mode)->where('scope->lab', true)
+        $scans = Scan::query()->where('status', 'completed')->where('mode', $mode)
+            ->when($mode !== 'external', fn ($query) => $query->where('scope->lab', true))
+            ->when($retestOf !== null, fn ($query) => $retestOf ? $query->whereNotNull('scope->retest_of') : $query->whereNull('scope->retest_of'))
             ->when($this->option('sessao'), fn ($query, $ids) => $query->whereKey($ids))
             ->with(['findings' => fn ($query) => $query->achados()])
             ->latest()->orderByDesc('id')->limit($last)->get();
@@ -142,14 +152,14 @@ class EgideBench extends Command
             $current = $classes[$check] ?? 'nao_testado';
             $classes[$check] = (self::VERDICTS[$verdict] ?? 0) > self::VERDICTS[$current] ? $verdict : $current;
         }
-        if ($variant === 'vulneravel') {
+        if (! in_array($variant, ['corrigido', 'reteste'], true)) {
             foreach ($scan->findings->pluck('category')->filter(fn ($category) => is_string($category) && $category !== '') as $category) {
                 $classes[$category] = 'falha';
             }
         }
         ksort($classes);
 
-        $falsePositives = $variant === 'corrigido'
+        $falsePositives = in_array($variant, ['corrigido', 'reteste'], true)
             ? $scan->findings->reject(fn ($finding) => in_array($finding->category, self::CONFIGURATION_CATEGORIES, true))->pluck('category')->values()->all()
             : null;
         $started = $scan->started_at;

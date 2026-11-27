@@ -1,0 +1,33 @@
+name: egide-alvos
+
+# Alvos vulneráveis conhecidos para o benchmark de detecção (egide:bench:alvos).
+# Sobem só no loopback; o runner os alcança via host.docker.internal + local_port.
+# Uso: docker compose -f compose.alvos.yml up -d
+
+services:
+  juice-shop:
+    image: bkimminich/juice-shop:latest
+    ports:
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000"]
+      interval: 10s
+      retries: 12
+
+  vampi:
+    image: erev0s/vampi:latest
+    environment:
+      vulnerable: "1"
+      tokentimetolive: "3600"
+    ports:
+      - "127.0.0.1:5000:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:5000"]
+      interval: 10s
+      retries: 12
+
+  dvwa:
+    image: vulnerables/web-dvwa:latest
+    ports:
+      - "127.0.0.1:4280:80"
+    # DVWA exige um clique em "Create / Reset Database" em /setup.php antes do primeiro uso.

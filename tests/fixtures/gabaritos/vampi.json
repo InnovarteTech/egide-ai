@@ -1,0 +1,13 @@
+{
+  "descricao": "Falhas conhecidas do VAmPI (OWASP API Top 10) mapeadas para as classes de verificação do scanner.",
+  "classes": [
+    "Acesso sem autenticação",
+    "AuthCheck · JWT fraco",
+    "AuthCheck · sem limite de tentativas",
+    "BFLA · autorização por função",
+    "BOLA · autorização por objeto",
+    "ExcessiveData · exposição excessiva",
+    "InjectionCheck · SQLi por erro",
+    "Mass assignment · atribuição em massa"
+  ]
+}
