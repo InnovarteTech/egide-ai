@@ -62,6 +62,11 @@ class EgideBench extends Command
         if ($report['sessoes'] === []) {
             $report['mensagem'] = self::EMPTY;
         }
+        $belowMin = $gabarito !== null && $min !== null && ($gabarito['cobertura'] ?? 0) < $min;
+        if ($belowMin) {
+            $report['gabarito']['minimo'] = $min;
+            $report['gabarito']['reprovado'] = true;
+        }
 
         if ($this->option('json')) {
             $flags = JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION;
@@ -72,8 +77,10 @@ class EgideBench extends Command
             $this->render($report);
         }
 
-        if ($gabarito !== null && $min !== null && ($gabarito['cobertura'] ?? 0) < $min) {
-            $this->error("Cobertura do gabarito abaixo do mínimo: {$this->percent($gabarito['cobertura'])} < {$this->percent($min)}.");
+        if ($belowMin) {
+            if (! $this->option('json')) {
+                $this->error("Cobertura do gabarito abaixo do mínimo: {$this->percent($gabarito['cobertura'])} < {$this->percent($min)}.");
+            }
 
             return self::FAILURE;
         }

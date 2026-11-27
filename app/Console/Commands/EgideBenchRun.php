@@ -150,8 +150,8 @@ class EgideBenchRun extends Command
         $rows = $scans->map(fn (Scan $scan) => [
             'id' => $scan->id,
             'status' => $scan->status,
-            'fila_s' => $scan->started_at ? max(0, $scan->started_at->getTimestamp() - $scan->created_at->getTimestamp()) : null,
-            'duracao_s' => $scan->started_at && $scan->finished_at ? max(0, $scan->finished_at->getTimestamp() - $scan->started_at->getTimestamp()) : null,
+            'fila_s' => $scan->started_at ? round(max(0, $scan->created_at->diffInMilliseconds($scan->started_at)) / 1000, 1) : null,
+            'duracao_s' => $scan->started_at && $scan->finished_at ? round(max(0, $scan->started_at->diffInMilliseconds($scan->finished_at)) / 1000, 1) : null,
             'requisicoes' => (int) $scan->request_count,
         ])->all();
         $queue = collect($rows)->pluck('fila_s')->filter(fn ($v) => $v !== null);
