@@ -359,6 +359,42 @@ class EgideBenchTest extends TestCase
         Queue::assertPushed(RunScan::class, 4);
     }
 
+    public function test_run_provider_matrix_queues_per_provider_and_rejects_unknown_ones(): void
+    {
+        Queue::fake();
+        User::factory()->create(['is_admin' => true]);
+
+        $this->artisan('egide:bench:run', ['--provedores' => 'lab,bruxaria', '--espera' => 1])
+            ->expectsOutputToContain('bruxaria')
+            ->assertFailed();
+        $this->artisan('egide:bench:run', ['--provedores' => 'anthropic', '--espera' => 1])
+            ->expectsOutputToContain('Sem chave')
+            ->assertFailed();
+        $this->assertSame(0, Scan::count());
+
+        $this->artisan('egide:bench:run', ['--provedores' => 'lab,lab', '--pares' => 1, '--espera' => 1, '--intervalo' => 1])
+            ->expectsOutputToContain('2 sessões enfileiradas')
+            ->assertFailed();
+        $this->assertSame(['laboratory', 'retest'], Scan::orderBy('id')->pluck('mode')->all());
+        Queue::assertPushed(RunScan::class, 2);
+    }
+
+    public function test_run_concurrency_queues_simultaneous_lab_sessions(): void
+    {
+        Queue::fake();
+        User::factory()->create(['is_admin' => true]);
+
+        $this->artisan('egide:bench:run', ['--concorrencia' => 3, '--espera' => 1, '--intervalo' => 1])
+            ->expectsOutputToContain('3 sessões simultâneas enfileiradas (lab)')
+            ->assertFailed();
+
+        $this->assertSame(3, Scan::count());
+        $this->assertTrue(Scan::all()->every(fn (Scan $scan) => $scan->mode === 'laboratory'));
+        Queue::assertPushed(RunScan::class, 3);
+
+        $this->artisan('egide:bench:run', ['--concorrencia' => '0'])->expectsOutputToContain('--concorrencia')->assertFailed();
+    }
+
     public function test_run_requires_an_owner_and_the_ai_engine_when_asked(): void
     {
         Queue::fake();

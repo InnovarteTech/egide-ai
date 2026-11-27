@@ -29,6 +29,8 @@ Com Redis, Horizon e os runners Docker no ar (`bin/egide`), `php artisan egide:b
 
 `egide:bench --gabarito=tests/fixtures/lab-gabarito.json` compara a união das classes detectadas com a lista fixa de falhas plantadas e informa cobertura, faltantes e nunca testadas — também dentro do relatório JSON (`gabarito`). `--min=0.9` reprova o comando quando a cobertura fica abaixo da fração; `egide:bench:run` repassa as duas opções e usa o gabarito padrão do repositório quando existir.
 
+`egide:bench:run --provedores=lab,anthropic,openai` roda a matriz de provedores: os pares de cada provedor são medidos em relatórios separados na chave `matriz` do JSON. Provedores hospedados precisam de chave: a do Super admin vale para o provedor configurado lá; para os demais use `EGIDE_BENCH_<PROVEDOR>_KEY` (ex.: `EGIDE_BENCH_OPENAI_KEY`). `--modelo=` troca o modelo dos hospedados. `egide:bench:run --concorrencia=N` lança N sessões simultâneas da variante vulnerável e mede o tempo de fila (`fila_s`, média e máximo) no lugar do relatório de detecção.
+
 ## Carga do Sentinela
 
 [scripts/bench/sentinela-carga.js](../../scripts/bench/sentinela-carga.js) é um roteiro [k6](https://k6.io) para `POST /api/sentinela/eventos`. Crie monitores, passe as chaves em `KEYS` e rode:
@@ -44,7 +46,7 @@ A rota limita 600 lotes por minuto por chave e IP e 1.200 por IP; acima disso o 
 
 | Mudança | Testes iniciais |
 | --- | --- |
-| Autorização, proxy e tipo de ambiente | [ScopeTest](../../tests/Unit/ScopeTest.php), [ScopeGateTest](../../tests/Feature/ScopeGateTest.php), [test_policy.py](../../tests/runner/test_policy.py) |
+| Autorização, proxy e tipo de ambiente | [ScopeTest](../../tests/Unit/ScopeTest.php), [ScopeGateTest](../../tests/Feature/ScopeGateTest.php), [test_policy.py](../../tests/runner/test_policy.py), [test_policy_fuzz.py](../../tests/runner/test_policy_fuzz.py) |
 | Sessão, cobertura e laboratório | [RunScanOraclesTest](../../tests/Feature/RunScanOraclesTest.php), [AgenticLabTest](../../tests/Feature/AgenticLabTest.php), [test_lab.py](../../tests/runner/test_lab.py) |
 | Planejamento, payload e provas | [PlannerTest](../../tests/Feature/PlannerTest.php), [PayloadOraclesTest](../../tests/Unit/PayloadOraclesTest.php), [HunterTest](../../tests/Unit/HunterTest.php) |
 | Segurança por ambiente e parada automática | [SafetyIntegrationTest](../../tests/Feature/SafetyIntegrationTest.php), [TargetSafetySettingsTest](../../tests/Feature/TargetSafetySettingsTest.php), [test_policy.py](../../tests/runner/test_policy.py), [test_runner_extras.py](../../tests/runner/test_runner_extras.py) |

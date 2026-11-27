@@ -29,3 +29,7 @@ Thumbs.db
 /.codex/
 /.superpowers/
 __pycache__/
+
+# e2e
+/test-results/
+/playwright-report/
