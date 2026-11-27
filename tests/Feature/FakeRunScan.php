@@ -100,7 +100,9 @@ class FakeRunScan extends RunScan
             return ['sample' => '<html><script src="/assets/app.js"></script></html>', 'type' => 'text/html', 'status' => 200, 'elapsed' => 40];
         }
         if ($value === '' && str_contains($route, '.js')) {
-            return ['sample' => 'var h = location.hash.slice(1); el.dangerouslySetInnerHTML = {__html: h};', 'type' => 'application/javascript', 'status' => 200, 'elapsed' => 40];
+            $sink = $this->vulnerable ? 'el.dangerouslySetInnerHTML = {__html: h};' : 'el.textContent = h;';
+
+            return ['sample' => 'var h = location.hash.slice(1); '.$sink, 'type' => 'application/javascript', 'status' => 200, 'elapsed' => 40];
         }
         if (str_contains($route, 'perfil')) {
             $shown = $this->vulnerable ? str_replace(['<', '>'], '', $value) : htmlspecialchars($value, ENT_QUOTES);
@@ -131,6 +133,9 @@ class FakeRunScan extends RunScan
             $found = $value === '1' || ($this->vulnerable && str_contains($value, "'1'='1'"));
 
             return ['sample' => $found ? '{"pedidos":[{"id":"1","item":"Assinatura anual"}]}' : '{"pedidos":[]}', 'type' => 'application/json', 'status' => 200, 'elapsed' => 40];
+        }
+        if (str_contains($route, 'login')) {
+            return $this->vulnerable ? $safe : ['sample' => 'ok', 'type' => 'application/json', 'status' => 429, 'elapsed' => 30];
         }
         if (! $this->vulnerable) {
             return $safe;

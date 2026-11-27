@@ -93,8 +93,6 @@ class EgideBench extends Command
         $data = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
         $expected = collect($data['classes'] ?? [])->filter(fn ($class) => is_string($class) && $class !== '')->unique()->sort()->values();
         if ($expected->isEmpty()) {
-            $this->warn('Gabarito vazio ou inválido; ignorado.');
-
             return null;
         }
         $detected = collect($originals['classes'] ?? [])->where('pass_at_k', true)->pluck('classe');

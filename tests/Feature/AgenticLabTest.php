@@ -121,10 +121,14 @@ class AgenticLabTest extends TestCase
         $this->assertNotContains('InjectionCheck · XSS refletido', $scan->findings()->pluck('category')->all());
     }
 
-    public function test_get_probes_never_assert_login_rate_limit(): void
+    public function test_post_attempts_assert_login_rate_limit(): void
     {
         $scan = $this->runLoop(vulnerable: true);
+        $this->assertContains('AuthCheck · sem limite de tentativas', $scan->findings()->pluck('category')->all());
+
+        $scan = $this->runLoop(vulnerable: false);
         $this->assertNotContains('AuthCheck · sem limite de tentativas', $scan->findings()->pluck('category')->all());
+        $this->assertContains('protegido', collect((array) $scan->coverage)->where('check', 'AuthCheck · sem limite de tentativas')->pluck('verdict')->all());
     }
 
     public function test_agentic_loop_finds_wave2_vulnerabilities(): void
@@ -255,11 +259,16 @@ class AgenticLabTest extends TestCase
         $this->assertFalse($rows->contains(fn ($row) => str_contains($row['route'], '?')));
     }
 
-    public function test_clientscan_static_coverage_never_claims_falha(): void
+    public function test_clientscan_static_coverage_follows_dom_execution(): void
     {
         $scan = $this->runLoop(vulnerable: true);
         $static = array_values(array_filter((array) $scan->coverage, fn ($c) => $c['check'] === 'ClientScan · sinks DOM'));
         $this->assertNotEmpty($static);
-        $this->assertNotSame('falha', $static[0]['verdict']);
+        $this->assertSame('falha', $static[0]['verdict']);
+
+        $scan = $this->runLoop(vulnerable: false);
+        $static = array_values(array_filter((array) $scan->coverage, fn ($c) => $c['check'] === 'ClientScan · sinks DOM'));
+        $this->assertNotEmpty($static);
+        $this->assertSame('protegido', $static[0]['verdict']);
     }
 }
