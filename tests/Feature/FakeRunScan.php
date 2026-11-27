@@ -95,6 +95,9 @@ class FakeRunScan extends RunScan
     private function answer(string $route, string $value): array
     {
         $safe = ['sample' => 'ok', 'type' => 'application/json', 'status' => 200, 'elapsed' => 50];
+        if (str_contains($route, 'login')) {
+            return $this->vulnerable ? $safe : ['sample' => 'ok', 'type' => 'application/json', 'status' => 429, 'elapsed' => 30];
+        }
         // domXssSweep probes (no inject): entry HTML + bundle with a source-fed sink.
         if ($value === '' && str_contains($route, 'vulneravel') && ! str_contains($route, '.js')) {
             return ['sample' => '<html><script src="/assets/app.js"></script></html>', 'type' => 'text/html', 'status' => 200, 'elapsed' => 40];
@@ -133,9 +136,6 @@ class FakeRunScan extends RunScan
             $found = $value === '1' || ($this->vulnerable && str_contains($value, "'1'='1'"));
 
             return ['sample' => $found ? '{"pedidos":[{"id":"1","item":"Assinatura anual"}]}' : '{"pedidos":[]}', 'type' => 'application/json', 'status' => 200, 'elapsed' => 40];
-        }
-        if (str_contains($route, 'login')) {
-            return $this->vulnerable ? $safe : ['sample' => 'ok', 'type' => 'application/json', 'status' => 429, 'elapsed' => 30];
         }
         if (! $this->vulnerable) {
             return $safe;
