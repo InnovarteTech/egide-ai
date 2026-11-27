@@ -28,3 +28,4 @@ Thumbs.db
 /.agents/vendor/
 /.codex/
 /.superpowers/
+__pycache__/
