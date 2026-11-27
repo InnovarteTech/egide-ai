@@ -189,7 +189,7 @@ def get(lab, path, page):
                 rows = database.execute(f"SELECT id, item FROM pedidos WHERE id = '{value}'").fetchall()
             else:
                 rows = database.execute("SELECT id, item FROM pedidos WHERE id = ?", (value,)).fetchall()
-        except sqlite3.Error:
+        except (sqlite3.Error, sqlite3.Warning):
             rows = []
         finally:
             database.close()

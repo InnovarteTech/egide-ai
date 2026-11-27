@@ -21,7 +21,22 @@ node landing/build.mjs
 node landing/check.mjs
 ```
 
-Com sessões concluídas das duas variantes do laboratório, `php artisan egide:bench --last=10 --json` mede detecção, falsos positivos e custo por sessão e por achado. O consumo por fase aparece no evento e no relatório da sessão. O benchmark lê sessões existentes; não as executa. [EgideBench](../../app/Console/Commands/EgideBench.php), [RunScan](../../app/Jobs/RunScan.php).
+Com sessões concluídas das duas variantes do laboratório, `php artisan egide:bench --last=10 --json` mede detecção, falsos positivos e custo por sessão e por achado; `--sessao=<id>` (repetível) limita o relatório a sessões específicas. O consumo por fase aparece no evento e no relatório da sessão. [EgideBench](../../app/Console/Commands/EgideBench.php), [RunScan](../../app/Jobs/RunScan.php).
+
+## Benchmark executado
+
+Com Redis, Horizon e os runners Docker no ar (`bin/egide`), `php artisan egide:bench:run --pares=3 --orcamento=300 --saida=bench.json` enfileira pares de sessões (`laboratory` na variante vulnerável e `retest` na corrigida) em nome do primeiro administrador, espera todas terminarem e grava o relatório de `egide:bench` só dessas sessões. Sem `--agente`, usa o roteiro determinístico do laboratório (`provider=lab`, sem custo de IA); com `--agente`, usa o motor configurado no Super admin. O orçamento padrão do console (80 requisições) cobre só as verificações de autorização e configuração; use 300 para a bateria completa de injeção. Sessões que terminam como `failed` ou `cancelled` são avisadas e ficam fora do relatório. [EgideBenchRun](../../app/Console/Commands/EgideBenchRun.php).
+
+## Carga do Sentinela
+
+[scripts/bench/sentinela-carga.js](../../scripts/bench/sentinela-carga.js) é um roteiro [k6](https://k6.io) para `POST /api/sentinela/eventos`. Crie monitores, passe as chaves em `KEYS` e rode:
+
+```bash
+docker run --rm --network host -v "$PWD/scripts/bench:/bench" grafana/k6 run \
+  -e BASE=http://127.0.0.1:8187 -e KEYS=esc_a,esc_b -e RATE=15 -e BATCH=50 /bench/sentinela-carga.js
+```
+
+A rota limita 600 lotes por minuto por chave e IP e 1.200 por IP; acima disso o `429` é esperado e aparece na métrica `lotes_limitados_429`. `php artisan serve` atende uma requisição por vez, então use o compose de produção (Apache e PostgreSQL) para medir capacidade.
 
 ## Encontre o teste do comportamento
 

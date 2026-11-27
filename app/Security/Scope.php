@@ -87,6 +87,28 @@ final class Scope
         return max(10, min($max, $requested));
     }
 
+    public static function lab(string $variant): array
+    {
+        return [
+            'url' => "http://lab.egide.test:8788/{$variant}", 'lab' => true,
+            'rules' => [
+                ['method' => 'GET', 'path' => "/{$variant}", 'prefix' => true],
+                ['method' => 'GET', 'path' => "/servicos/{$variant}", 'prefix' => true],
+                ['method' => 'GET', 'path' => '/favicon.ico', 'prefix' => false],
+                ['method' => 'POST', 'path' => "/{$variant}/cadastro", 'prefix' => false],
+                ['method' => 'POST', 'path' => "/{$variant}/entrar", 'prefix' => false],
+                ['method' => 'POST', 'path' => "/servicos/{$variant}/graphql", 'prefix' => false],
+                ['method' => 'POST', 'path' => "/servicos/{$variant}/importar", 'prefix' => false],
+                ['method' => 'POST', 'path' => "/servicos/{$variant}/transferir", 'prefix' => false],
+                ['method' => 'POST', 'path' => "/servicos/{$variant}/preferencias", 'prefix' => false],
+                ['method' => 'POST', 'path' => "/servicos/{$variant}/resgatar", 'prefix' => false],
+                ['method' => 'DELETE', 'path' => "/servicos/{$variant}/reservas", 'prefix' => true],
+            ],
+            'denied' => ['/administracao', '/pagamentos'],
+            'write' => ['method' => 'PATCH', 'host' => 'lab.egide.test', 'path' => "/servicos/{$variant}/extratos", 'prefix' => true, 'max' => 4],
+        ];
+    }
+
     public static function allows(array $scope, string $method, string $path): bool
     {
         $route = self::route($scope, $path);
