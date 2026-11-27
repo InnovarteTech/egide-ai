@@ -23,7 +23,8 @@ class EgideBench extends Command
 
     protected $signature = 'egide:bench
         {--last=10 : Quantidade de sessões concluídas mais recentes de cada variante}
-        {--json : Imprime o relatório em JSON}';
+        {--json : Imprime o relatório em JSON}
+        {--sessao=* : Limita o relatório a estas sessões}';
 
     protected $description = 'Mede detecção, falso positivo e custo do agente nas sessões de laboratório concluídas';
 
@@ -64,6 +65,7 @@ class EgideBench extends Command
     private function rows(string $mode, string $variant, int $last): array
     {
         $scans = Scan::query()->where('status', 'completed')->where('mode', $mode)->where('scope->lab', true)
+            ->when($this->option('sessao'), fn ($query, $ids) => $query->whereKey($ids))
             ->with(['findings' => fn ($query) => $query->achados()])
             ->latest()->orderByDesc('id')->limit($last)->get();
         $budgets = ScanEvent::whereIn('scan_id', $scans->modelKeys())->where('title', self::BUDGET_EVENT)

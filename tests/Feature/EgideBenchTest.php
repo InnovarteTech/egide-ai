@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\RunScan;
 use App\Models\Scan;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class EgideBenchTest extends TestCase
@@ -281,5 +283,51 @@ class EgideBenchTest extends TestCase
         $this->artisan('egide:bench', ['--last' => '0'])
             ->expectsOutputToContain('--last')
             ->assertFailed();
+    }
+
+    public function test_session_option_limits_the_report_to_the_given_sessions(): void
+    {
+        $chosen = $this->labSession('laboratory', [$this->cover(self::BFLA, 'falha')]);
+        $this->labSession('laboratory', [$this->cover(self::SQLI, 'falha')]);
+        $retest = $this->labSession('retest');
+        $this->labSession('retest', [], [self::SSRF]);
+
+        $report = $this->bench(['--sessao' => [$chosen->id, $retest->id]]);
+
+        $this->assertSame([self::BFLA], $report['originais']['uniao']);
+        $this->assertSame(0, $report['retestes']['falsos_positivos']);
+        $this->assertEqualsCanonicalizing([$chosen->id, $retest->id], array_column($report['sessoes'], 'id'));
+    }
+
+    public function test_run_queues_lab_and_retest_pairs_with_the_lab_scope(): void
+    {
+        Queue::fake();
+        $admin = User::factory()->create(['is_admin' => true]);
+
+        $this->artisan('egide:bench:run', ['--pares' => 2, '--orcamento' => 250, '--espera' => 1, '--intervalo' => 1])
+            ->expectsOutputToContain('4 sessões enfileiradas (lab)')
+            ->expectsOutputToContain('Tempo esgotado')
+            ->assertFailed();
+
+        $scans = Scan::orderBy('id')->get();
+        $this->assertSame(['laboratory', 'retest', 'laboratory', 'retest'], $scans->pluck('mode')->all());
+        $this->assertTrue($scans->every(fn (Scan $scan) => $scan->user_id === $admin->id && $scan->provider === 'lab' && $scan->budget === 250));
+        $this->assertSame('http://lab.egide.test:8788/vulneravel', $scans[0]->scope['url']);
+        $this->assertSame('http://lab.egide.test:8788/corrigido', $scans[1]->scope['url']);
+        $this->assertTrue($scans[1]->scope['lab']);
+        Queue::assertPushed(RunScan::class, 4);
+    }
+
+    public function test_run_requires_an_owner_and_the_ai_engine_when_asked(): void
+    {
+        Queue::fake();
+        $this->artisan('egide:bench:run')->expectsOutputToContain('Nenhum administrador')->assertFailed();
+
+        User::factory()->create(['is_admin' => true]);
+        $this->artisan('egide:bench:run', ['--agente' => true])->expectsOutputToContain('motor de IA')->assertFailed();
+        $this->artisan('egide:bench:run', ['--pares' => '0'])->expectsOutputToContain('--pares')->assertFailed();
+
+        $this->assertSame(0, Scan::count());
+        Queue::assertNothingPushed();
     }
 }

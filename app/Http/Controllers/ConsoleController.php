@@ -475,24 +475,7 @@ class ConsoleController extends Controller
         }
 
         $variant = $data['mode'] === 'retest' ? 'corrigido' : 'vulneravel';
-        $scope = $external ? [...Scope::launch($target), 'retest_of' => $retestOf] : [
-            'url' => "http://lab.egide.test:8788/{$variant}", 'lab' => true,
-            'rules' => [
-                ['method' => 'GET', 'path' => "/{$variant}", 'prefix' => true],
-                ['method' => 'GET', 'path' => "/servicos/{$variant}", 'prefix' => true],
-                ['method' => 'GET', 'path' => '/favicon.ico', 'prefix' => false],
-                ['method' => 'POST', 'path' => "/{$variant}/cadastro", 'prefix' => false],
-                ['method' => 'POST', 'path' => "/{$variant}/entrar", 'prefix' => false],
-                ['method' => 'POST', 'path' => "/servicos/{$variant}/graphql", 'prefix' => false],
-                ['method' => 'POST', 'path' => "/servicos/{$variant}/importar", 'prefix' => false],
-                ['method' => 'POST', 'path' => "/servicos/{$variant}/transferir", 'prefix' => false],
-                ['method' => 'POST', 'path' => "/servicos/{$variant}/preferencias", 'prefix' => false],
-                ['method' => 'POST', 'path' => "/servicos/{$variant}/resgatar", 'prefix' => false],
-                ['method' => 'DELETE', 'path' => "/servicos/{$variant}/reservas", 'prefix' => true],
-            ],
-            'denied' => ['/administracao', '/pagamentos'],
-            'write' => ['method' => 'PATCH', 'host' => 'lab.egide.test', 'path' => "/servicos/{$variant}/extratos", 'prefix' => true, 'max' => 4],
-        ];
+        $scope = $external ? [...Scope::launch($target), 'retest_of' => $retestOf] : Scope::lab($variant);
         $scope['nav_model'] = $engine['nav_model'] ?? null;
 
         $model = $engine['model'] ?? null;
