@@ -19,6 +19,7 @@ sessions = {}
 confirmations = {}
 invoices = {}
 privileged = {}
+login_failures = {}
 
 
 def reset():
@@ -26,6 +27,7 @@ def reset():
     sessions.clear()
     confirmations.clear()
     invoices.clear()
+    login_failures.clear()
     lab_services.reset_state()
     privileged.clear()
     privileged.update({"marcador": "EGIDE-" + secrets.token_hex(6).upper(), "relatorio": "Receita consolidada de todas as empresas do tenant"})
@@ -300,10 +302,15 @@ document.getElementById("exportar").onclick = async () => {{
                 return
             self.reply(page(f"<h1>Confirme seu e-mail</h1><p>Mensagem de teste enviada para {html.escape(email)}.</p>"))
             return
+        if action == "entrar" and variant == "corrigido" and login_failures.get(self.client_address[0], 0) >= 5:
+            self.reply(page("<h1>Muitas tentativas. Aguarde um instante.</h1>"), 429)
+            return
         account = accounts.get(email)
         if not account or not account["confirmed"] or account["password"] != password:
+            login_failures[self.client_address[0]] = login_failures.get(self.client_address[0], 0) + 1
             self.reply(page("<h1>Credenciais inválidas</h1>"), 401)
             return
+        login_failures.pop(self.client_address[0], None)
         token = secrets.token_hex(24)
         sessions[token] = account["actor"]
         self.redirect(f"/{variant}/painel", token)

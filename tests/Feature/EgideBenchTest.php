@@ -299,6 +299,47 @@ class EgideBenchTest extends TestCase
         $this->assertEqualsCanonicalizing([$chosen->id, $retest->id], array_column($report['sessoes'], 'id'));
     }
 
+    public function test_gabarito_compares_detection_against_planted_failures(): void
+    {
+        $fixture = tempnam(sys_get_temp_dir(), 'gabarito').'.json';
+        file_put_contents($fixture, json_encode(['classes' => [self::BFLA, self::SQLI, self::SSRF, 'Inexistente']]));
+        $this->labSession('laboratory', [$this->cover(self::BFLA, 'falha'), $this->cover(self::SQLI, 'protegido')], [self::BFLA]);
+
+        $report = $this->bench(['--gabarito' => $fixture]);
+        $gabarito = $report['gabarito'];
+
+        $this->assertSame(4, $gabarito['esperadas']);
+        $this->assertSame(1, $gabarito['detectadas']);
+        $this->assertEqualsWithDelta(0.25, $gabarito['cobertura'], 0.0001);
+        $this->assertSame(['Inexistente', self::SQLI, self::SSRF], $gabarito['faltantes']);
+        $this->assertSame(['Inexistente', self::SSRF], $gabarito['nunca_testadas']);
+        unlink($fixture);
+    }
+
+    public function test_gabarito_min_fails_below_the_threshold(): void
+    {
+        $fixture = tempnam(sys_get_temp_dir(), 'gabarito').'.json';
+        file_put_contents($fixture, json_encode(['classes' => [self::BFLA, self::SQLI]]));
+        $this->labSession('laboratory', [$this->cover(self::BFLA, 'falha')]);
+
+        $this->artisan('egide:bench', ['--gabarito' => $fixture, '--min' => '0.5'])->assertSuccessful();
+        $this->artisan('egide:bench', ['--gabarito' => $fixture, '--min' => '0.6'])
+            ->expectsOutputToContain('abaixo do mínimo')
+            ->assertFailed();
+        $this->artisan('egide:bench', ['--gabarito' => $fixture, '--min' => 'abc'])
+            ->expectsOutputToContain('--min')
+            ->assertFailed();
+        unlink($fixture);
+    }
+
+    public function test_gabarito_missing_or_empty_file_is_ignored(): void
+    {
+        $this->labSession('laboratory', [$this->cover(self::BFLA, 'falha')]);
+
+        $report = $this->bench(['--gabarito' => 'nao-existe.json']);
+        $this->assertArrayNotHasKey('gabarito', $report);
+    }
+
     public function test_run_queues_lab_and_retest_pairs_with_the_lab_scope(): void
     {
         Queue::fake();

@@ -151,7 +151,7 @@ class RunScan implements ShouldQueue
         $this->absorbBundleRoutes($js);
         $sinks = ClientScan::sinks($js);
         $sourced = array_values(array_filter($sinks, fn ($sink) => $sink['source']));
-        $this->cover('ClientScan · sinks DOM', $entry, $sinks ? 'nao_testado' : 'protegido');
+        $sinksVerdict = fn (bool $found) => $found ? 'falha' : ($sinks ? 'nao_testado' : 'protegido');
         $this->scan->event('test', 'Análise client-side de sinks', count($sinks).' sink(s) perigoso(s) no bundle, '.count($sourced).' com fonte controlável. A confirmação de execução no DOM é que decide o achado.');
 
         $found = false;
@@ -160,6 +160,8 @@ class RunScan implements ShouldQueue
             $found = $this->domProbePoint($entry, 'hash', null, $token);
         });
         if ($found || ! ClientScan::readsQuery($js)) {
+            $this->cover('ClientScan · sinks DOM', $entry, $sinksVerdict($found));
+
             return;
         }
         $params = [];
@@ -173,9 +175,10 @@ class RunScan implements ShouldQueue
                 $found = $this->domProbePoint($entry, 'query', $param, strtoupper(bin2hex(random_bytes(5))));
             });
             if ($found) {
-                return;
+                break;
             }
         }
+        $this->cover('ClientScan · sinks DOM', $entry, $sinksVerdict($found));
     }
 
     private function absorbBundleRoutes(string $js): void
@@ -229,6 +232,7 @@ class RunScan implements ShouldQueue
         foreach ($this->inventory as $endpoint) {
             if (($endpoint['method'] ?? '') === 'POST' && preg_match('~/graphql/?$~i', (string) ($endpoint['path'] ?? ''))) {
                 $this->softCheck('GraphQL batching', fn () => $this->graphqlBatchTest($endpoint['path']));
+                $this->softCheck('GraphQL introspection', fn () => $this->graphqlIntrospectionTest($endpoint['path']));
             }
         }
         $this->authBattery();
@@ -255,21 +259,19 @@ class RunScan implements ShouldQueue
                 continue;
             }
             $this->softCheck('Limite de login', function () use ($check) {
-                if (! $this->inScope($check['path']) || ! $this->budgetAllows(8)) {
+                if (! $this->inScope($check['path']) || ! Scope::allows($this->scan->scope, 'POST', $check['path']) || ! $this->budgetAllows(8)) {
                     return;
                 }
+                $body = http_build_query(['email' => 'a-00000000-0000-0000-0000-00000000@egide.test', 'password' => 'egide-tentativa-invalida']);
                 $statuses = [];
                 for ($i = 0; $i < 8; $i++) {
                     $this->checkStop();
-                    $probe = $this->runner('/probe', ['path' => $check['path'], 'markers' => []]);
-                    $this->observe();
+                    $probe = $this->runner('/probe', ['path' => $check['path'], 'method' => 'POST', 'raw' => $body,
+                        'content_type' => 'application/x-www-form-urlencoded', 'direct' => true, 'markers' => []]);
+                    $this->observe(false);
                     $statuses[] = (int) ($probe['status'] ?? 0);
                 }
                 $assessment = $this->authRateAssess($check['path'], $statuses);
-                if ($assessment['verdict'] === 'falha') {
-                    $assessment = ['verdict' => 'nao_testado', 'finding' => null];
-                    $this->scan->event('test', 'Limite de login não confirmado', "A sonda GET em {$check['path']} não dispara tentativa real de login; confirmar limite exige envio de credenciais (POST).");
-                }
                 $this->cover('AuthCheck · sem limite de tentativas', $check['path'], $assessment['verdict']);
                 if ($assessment['finding']) {
                     $this->scan->findings()->create($assessment['finding']);

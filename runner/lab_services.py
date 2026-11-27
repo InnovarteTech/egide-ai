@@ -143,6 +143,19 @@ def public_host(url):
     return True
 
 
+def fetchable(url):
+    # O coletor da Égide é interno ao laboratório; fora dele só URLs públicas.
+    return url.startswith(("http://", "https://")) and (
+        public_host(url) or urlsplit(url).path.startswith("/api/colaborador/"))
+
+
+def server_fetch(url):
+    try:
+        urllib.request.urlopen(url, timeout=4).read(64)
+    except Exception:
+        pass
+
+
 def get(lab, path, page):
     if notes(lab, "GET", path, page):
         return True
@@ -157,7 +170,7 @@ def get(lab, path, page):
     if consulta:
         variant = consulta.group(1)
         value = parse_qs(urlsplit(lab.path).query).get("id", [""])[0]
-        if variant == "vulneravel" and re.search(r"sleep|benchmark|waitfor|pg_sleep|'", value, re.I):
+        if variant == "vulneravel" and re.search(r"sleep|benchmark|waitfor|pg_sleep", value, re.I):
             time.sleep(6)
         lab.reply(json.dumps({"consulta": value[:40], "itens": []}), kind="application/json")
         return True
@@ -168,11 +181,8 @@ def get(lab, path, page):
         if variant == "vulneravel" and (urlsplit(destino).hostname or "").lower() in METADATA_HOSTS:
             lab.reply(IMDS_CREDENTIALS, kind="text/plain; charset=utf-8")
             return True
-        if variant == "vulneravel" and destino.startswith(("http://", "https://")) and public_host(destino):
-            try:
-                urllib.request.urlopen(destino, timeout=4).read(64)
-            except Exception:
-                pass
+        if variant == "vulneravel" and fetchable(destino):
+            server_fetch(destino)
             lab.reply(json.dumps({"ok": True, "destino": destino[:120]}), kind="application/json")
         else:
             lab.reply(json.dumps({"error": "destino nao permitido"}), 400, "application/json")
@@ -186,7 +196,11 @@ def get(lab, path, page):
             database.execute("CREATE TABLE pedidos (id TEXT, item TEXT)")
             database.executemany("INSERT INTO pedidos VALUES (?, ?)", [("1", "Assinatura anual"), ("2", "Suporte premium")])
             if variant == "vulneravel":
-                rows = database.execute(f"SELECT id, item FROM pedidos WHERE id = '{value}'").fetchall()
+                try:
+                    rows = database.execute(f"SELECT id, item FROM pedidos WHERE id = '{value}'").fetchall()
+                except (sqlite3.Error, sqlite3.Warning) as error:
+                    lab.reply(f'SQLite3::query(): near "{value[:30]}": syntax error ({error})', 500, "text/plain; charset=utf-8")
+                    return True
             else:
                 rows = database.execute("SELECT id, item FROM pedidos WHERE id = ?", (value,)).fetchall()
         except (sqlite3.Error, sqlite3.Warning):
@@ -326,11 +340,8 @@ def post(lab, path, page=None):
         entity = re.search(r'<!ENTITY\s+\w+\s+SYSTEM\s+"([^"]+)"', raw)
         if importar.group(1) == "vulneravel" and entity:
             destino = entity.group(1)
-            if destino.startswith(("http://", "https://")) and public_host(destino):
-                try:
-                    urllib.request.urlopen(destino, timeout=4).read(64)
-                except Exception:
-                    pass
+            if fetchable(destino):
+                server_fetch(destino)
         lab.reply(json.dumps({"ok": True, "importado": bool(entity)}), kind="application/json")
         return True
     preferencias = re.fullmatch(r"/servicos/(vulneravel|corrigido)/preferencias", urlsplit(lab.path).path)

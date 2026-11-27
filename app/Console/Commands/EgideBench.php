@@ -24,7 +24,9 @@ class EgideBench extends Command
     protected $signature = 'egide:bench
         {--last=10 : Quantidade de sessões concluídas mais recentes de cada variante}
         {--json : Imprime o relatório em JSON}
-        {--sessao=* : Limita o relatório a estas sessões}';
+        {--sessao=* : Limita o relatório a estas sessões}
+        {--gabarito= : JSON com a lista de falhas plantadas esperadas (ex.: tests/fixtures/lab-gabarito.json)}
+        {--min= : Fração mínima do gabarito que precisa ser detectada (ex.: 0.9); falha o comando se ficar abaixo}';
 
     protected $description = 'Mede detecção, falso positivo e custo do agente nas sessões de laboratório concluídas';
 
@@ -46,6 +48,17 @@ class EgideBench extends Command
             'custo' => ['originais' => $this->cost($originals), 'retestes' => $this->cost($retests)],
             'sessoes' => [...$originals, ...$retests],
         ];
+
+        $gabarito = $this->gabarito($report['originais']);
+        if ($gabarito !== null) {
+            $report['gabarito'] = $gabarito;
+        }
+        $min = filter_var($this->option('min'), FILTER_VALIDATE_FLOAT, ['options' => ['min_range' => 0, 'max_range' => 1]]);
+        if ($this->option('min') !== null && $min === false) {
+            $this->error('Informe --min como fração entre 0 e 1 (ex.: 0.9).');
+
+            return self::FAILURE;
+        }
         if ($report['sessoes'] === []) {
             $report['mensagem'] = self::EMPTY;
         }
@@ -59,7 +72,45 @@ class EgideBench extends Command
             $this->render($report);
         }
 
+        if ($gabarito !== null && $min !== null && ($gabarito['cobertura'] ?? 0) < $min) {
+            $this->error("Cobertura do gabarito abaixo do mínimo: {$this->percent($gabarito['cobertura'])} < {$this->percent($min)}.");
+
+            return self::FAILURE;
+        }
+
         return self::SUCCESS;
+    }
+
+    private function gabarito(array $originals): ?array
+    {
+        $path = $this->option('gabarito');
+        if (! is_string($path) || $path === '') {
+            return null;
+        }
+        if (! is_file($path)) {
+            $path = base_path($path);
+        }
+        $data = is_file($path) ? json_decode((string) file_get_contents($path), true) : null;
+        $expected = collect($data['classes'] ?? [])->filter(fn ($class) => is_string($class) && $class !== '')->unique()->sort()->values();
+        if ($expected->isEmpty()) {
+            $this->warn('Gabarito vazio ou inválido; ignorado.');
+
+            return null;
+        }
+        $detected = collect($originals['classes'] ?? [])->where('pass_at_k', true)->pluck('classe');
+        $tested = collect($originals['classes'] ?? [])->filter(fn ($class) => $class['sessoes_testadas'] > 0)->pluck('classe');
+        $missing = $expected->diff($detected)->values();
+        $neverTested = $expected->diff($tested)->values();
+        $covered = $expected->count() - $missing->count();
+
+        return [
+            'arquivo' => $path,
+            'esperadas' => $expected->count(),
+            'detectadas' => $covered,
+            'cobertura' => $this->ratio($covered, $expected->count()),
+            'faltantes' => $missing->all(),
+            'nunca_testadas' => $neverTested->all(),
+        ];
     }
 
     private function rows(string $mode, string $variant, int $last): array
@@ -220,6 +271,19 @@ class EgideBench extends Command
             $this->line('Nenhuma classe de verificação registrada na cobertura dessas sessões.');
         }
         $this->line('Achados por sessão: '.$this->number($originals['achados_por_sessao']));
+
+        $gabarito = $report['gabarito'] ?? null;
+        if ($gabarito !== null) {
+            $this->newLine();
+            $this->line('<options=bold>Gabarito</>: '.$this->percent($gabarito['cobertura'])
+                ." ({$gabarito['detectadas']} de {$gabarito['esperadas']} falhas plantadas detectadas)");
+            if ($gabarito['faltantes'] !== []) {
+                $this->line('Faltantes: '.implode(' · ', $gabarito['faltantes']));
+            }
+            if ($gabarito['nunca_testadas'] !== []) {
+                $this->line('Nunca testadas: '.implode(' · ', $gabarito['nunca_testadas']));
+            }
+        }
 
         $this->newLine();
         $this->line("<options=bold>Retestes (variante corrigida)</>: {$this->sessions($retests['sessoes'])}");

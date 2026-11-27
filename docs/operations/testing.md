@@ -27,6 +27,8 @@ Com sessões concluídas das duas variantes do laboratório, `php artisan egide:
 
 Com Redis, Horizon e os runners Docker no ar (`bin/egide`), `php artisan egide:bench:run --pares=3 --orcamento=300 --saida=bench.json` enfileira pares de sessões (`laboratory` na variante vulnerável e `retest` na corrigida) em nome do primeiro administrador, espera todas terminarem e grava o relatório de `egide:bench` só dessas sessões. Sem `--agente`, usa o roteiro determinístico do laboratório (`provider=lab`, sem custo de IA); com `--agente`, usa o motor configurado no Super admin. O orçamento padrão do console (80 requisições) cobre só as verificações de autorização e configuração; use 300 para a bateria completa de injeção. Sessões que terminam como `failed` ou `cancelled` são avisadas e ficam fora do relatório. [EgideBenchRun](../../app/Console/Commands/EgideBenchRun.php).
 
+`egide:bench --gabarito=tests/fixtures/lab-gabarito.json` compara a união das classes detectadas com a lista fixa de falhas plantadas e informa cobertura, faltantes e nunca testadas — também dentro do relatório JSON (`gabarito`). `--min=0.9` reprova o comando quando a cobertura fica abaixo da fração; `egide:bench:run` repassa as duas opções e usa o gabarito padrão do repositório quando existir.
+
 ## Carga do Sentinela
 
 [scripts/bench/sentinela-carga.js](../../scripts/bench/sentinela-carga.js) é um roteiro [k6](https://k6.io) para `POST /api/sentinela/eventos`. Crie monitores, passe as chaves em `KEYS` e rode:

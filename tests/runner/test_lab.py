@@ -294,8 +294,46 @@ class LabTest(unittest.TestCase):
         self.assertEqual(self.orders("corrigido", "1' AND '1'='2'-- -"), [])
 
     def test_injected_extra_statement_never_runs(self):
-        self.assertEqual(self.orders("vulneravel", "1'; DELETE FROM pedidos;-- -"), [])
+        status, body, _ = self.get("/servicos/vulneravel/pedido?id=" + quote("1'; DELETE FROM pedidos;-- -", safe=""))
+        self.assertEqual(status, 500)
+        self.assertIn("syntax error", body)
         self.assertEqual(len(self.orders("vulneravel", "1")), 1)
+
+    def test_vulnerable_order_lookup_leaks_the_database_error(self):
+        status, body, _ = self.get("/servicos/vulneravel/pedido?id=" + quote("'", safe=""))
+        self.assertEqual(status, 500)
+        self.assertRegex(body, r"near \"[^\"]*\": syntax error")
+        status, body, _ = self.get("/servicos/corrigido/pedido?id=" + quote("'", safe=""))
+        self.assertEqual(status, 200)
+        self.assertNotIn("syntax error", body)
+
+    def test_fixed_login_throttles_repeated_failures(self):
+        creds = {"email": "a-00000000-0000-0000-0000-00000000@egide.test", "password": "egide-tentativa-invalida"}
+        statuses = [self.call("POST", "/corrigido/entrar", form=creds)[0] for _ in range(8)]
+        self.assertIn(429, statuses)
+        self.assertTrue(all(status in (401, 429) for status in statuses))
+
+    def test_vulnerable_login_never_throttles(self):
+        creds = {"email": "a-00000000-0000-0000-0000-00000000@egide.test", "password": "egide-tentativa-invalida"}
+        statuses = [self.call("POST", "/vulneravel/entrar", form=creds)[0] for _ in range(8)]
+        self.assertNotIn(429, statuses)
+
+    def test_vulnerable_integrador_fetches_the_egide_collector(self):
+        url = quote("http://127.0.0.1:8788/api/colaborador/cbteste01", safe="")
+        status, body, _ = self.call("GET", f"/servicos/vulneravel/integrador?url={url}")
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(body)["ok"])
+
+    def test_fixed_integrador_blocks_the_egide_collector(self):
+        url = quote("http://127.0.0.1:8788/api/colaborador/cbteste01", safe="")
+        status, _, _ = self.call("GET", f"/servicos/corrigido/integrador?url={url}")
+        self.assertEqual(status, 400)
+
+    def test_vulnerable_importar_resolves_external_entity_to_the_collector(self):
+        xml = '<?xml version="1.0"?><!DOCTYPE e [<!ENTITY x SYSTEM "http://127.0.0.1:8788/api/colaborador/cbteste02">]><e><p>&x;</p></e>'
+        status, body = self.call("POST", "/servicos/vulneravel/importar", payload=xml)[:2]
+        self.assertEqual(status, 200)
+        self.assertTrue(json.loads(body)["importado"])
 
     def test_vulnerable_return_redirects_to_any_destination(self):
         status, _, location = self.get("/servicos/vulneravel/retorno?destino=" + quote("https://egide-ab12cd34.invalid/", safe=""))

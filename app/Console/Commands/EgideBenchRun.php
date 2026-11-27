@@ -22,7 +22,9 @@ class EgideBenchRun extends Command
         {--orcamento=300 : Orçamento de requisições de cada sessão}
         {--espera=3600 : Tempo máximo de espera, em segundos}
         {--intervalo=10 : Segundos entre as verificações de andamento}
-        {--saida= : Grava o relatório JSON neste arquivo}';
+        {--saida= : Grava o relatório JSON neste arquivo}
+        {--gabarito= : JSON com as falhas plantadas esperadas; padrão tests/fixtures/lab-gabarito.json quando existir}
+        {--min= : Fração mínima do gabarito detectada para aprovar o benchmark}';
 
     protected $description = 'Executa pares de sessões do laboratório (vulnerável e corrigida) e mede o resultado com egide:bench';
 
@@ -75,7 +77,15 @@ class EgideBenchRun extends Command
             $this->warn("Sessão {$id} terminou como {$status} e fica fora do relatório.");
         }
 
-        Artisan::call('egide:bench', ['--last' => $pairs, '--json' => true, '--sessao' => $ids]);
+        $gabarito = $this->option('gabarito');
+        if (! is_string($gabarito) || $gabarito === '') {
+            $default = base_path('tests/fixtures/lab-gabarito.json');
+            $gabarito = is_file($default) ? $default : null;
+        }
+        $code = Artisan::call('egide:bench', array_filter([
+            '--last' => $pairs, '--json' => true, '--sessao' => $ids,
+            '--gabarito' => $gabarito, '--min' => $this->option('min'),
+        ], fn ($value) => $value !== null));
         $report = trim(Artisan::output());
         if ($path = $this->option('saida')) {
             file_put_contents($path, $report.PHP_EOL);
@@ -84,7 +94,7 @@ class EgideBenchRun extends Command
             $this->line($report);
         }
 
-        return $unfinished->count() === count($ids) ? self::FAILURE : self::SUCCESS;
+        return $code !== self::SUCCESS || $unfinished->count() === count($ids) ? self::FAILURE : self::SUCCESS;
     }
 
     private function launch(User $user, string $mode, string $variant, int $budget, ?array $engine): string

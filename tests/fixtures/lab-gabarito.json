@@ -1,0 +1,33 @@
+{
+  "descricao": "Falhas plantadas da variante vulneravel do laboratorio (derivado de runner/lab.py e do benchmark de referencia).",
+  "classes": [
+    "Acesso sem autenticação",
+    "AuthCheck · CSRF",
+    "AuthCheck · método de escrita sem sessão",
+    "AuthCheck · sem limite de tentativas",
+    "BFLA · autorização por função",
+    "BOLA de escrita · autorização por objeto",
+    "BOLA · autorização por objeto",
+    "ClientScan · sinks DOM",
+    "Configuração · cabeçalhos HTTP",
+    "Configuração · cookies",
+    "ExcessiveData · exposição excessiva",
+    "InjectionCheck · DOM XSS",
+    "InjectionCheck · NoSQL",
+    "InjectionCheck · SQLi booleano",
+    "InjectionCheck · SQLi por erro",
+    "InjectionCheck · SQLi por tempo",
+    "InjectionCheck · XSS refletido",
+    "InjectionCheck · XXE (entidade externa)",
+    "InjectionCheck · path traversal",
+    "InjectionCheck · prototype pollution",
+    "InventoryCheck · GraphQL batching",
+    "InventoryCheck · GraphQL introspection",
+    "InventoryCheck · inventário de API",
+    "LogicCheck · race condition (TOCTOU)",
+    "Mass assignment · atribuição em massa",
+    "RedirectCheck · open redirect",
+    "SSRF · callback out-of-band",
+    "SSRF · metadados de nuvem"
+  ]
+}

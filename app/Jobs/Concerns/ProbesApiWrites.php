@@ -3,6 +3,7 @@
 namespace App\Jobs\Concerns;
 
 use App\Security\ApiOracles;
+use App\Security\PayloadOracles;
 use App\Security\Scope;
 use Throwable;
 
@@ -143,6 +144,22 @@ trait ProbesApiWrites
         if ($assessment['finding']) {
             $this->scan->findings()->create($assessment['finding']);
             $this->scan->event('finding', 'GraphQL executa lote de operações', $executed.' operações rodaram numa requisição só em '.$path.'.', $assessment['finding']['evidence']);
+        }
+    }
+
+    private function graphqlIntrospectionTest(string $path): void
+    {
+        if (! Scope::allows($this->scan->scope, 'POST', $path) || ! $this->budgetAllows(2)) {
+            return;
+        }
+        $probe = $this->runner('/probe', ['path' => $path, 'method' => 'POST', 'direct' => true,
+            'raw_body' => ['query' => '{__schema{queryType{name} types{name}}}'], 'markers' => []]);
+        $this->observe(false);
+        $assessment = PayloadOracles::graphqlAssess($path, (string) ($probe['sample'] ?? ''));
+        $this->cover('InventoryCheck · GraphQL introspection', $path, $assessment['verdict']);
+        if ($assessment['finding']) {
+            $this->scan->findings()->create($assessment['finding']);
+            $this->scan->event('finding', 'Introspecção de GraphQL habilitada', 'O endpoint '.$path.' respondeu à consulta de introspecção com o schema.', $assessment['finding']['evidence']);
         }
     }
 
